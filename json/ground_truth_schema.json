@@ -1,0 +1,300 @@
+{
+  "schema_name": "ocr_ground_truth_schema",
+  "schema_version": "1.0",
+  "description": "Schema for manual labeling and benchmark ground truth. This file is intended for human annotation, not model prediction.",
+  "supported_document_types": [
+    "invoice",
+    "packing_list",
+    "info_sheet",
+    "unknown"
+  ],
+  "field_template": {
+    "ground_truth": null,
+    "normalized_value": null,
+    "page": null,
+    "bbox": null,
+    "notes": null
+  },
+  "table_cell_template": {
+    "ground_truth": null,
+    "normalized_value": null,
+    "bbox": null,
+    "notes": null
+  },
+  "document_record_template": {
+    "doc_id": null,
+    "file_path": null,
+    "file_name": null,
+    "folder": null,
+    "document_type": null,
+    "page_count": null,
+    "fields": {},
+    "tables": [],
+    "notes": null
+  },
+  "document_type_schemas": {
+    "invoice": {
+      "fields": {
+        "invoice_no": {
+          "$ref": "field_template"
+        },
+        "invoice_date": {
+          "$ref": "field_template"
+        },
+        "seller_name": {
+          "$ref": "field_template"
+        },
+        "buyer_name": {
+          "$ref": "field_template"
+        },
+        "consignee_name": {
+          "$ref": "field_template"
+        },
+        "consignee_address": {
+          "$ref": "field_template"
+        },
+        "notify_party": {
+          "$ref": "field_template"
+        },
+        "trade_term": {
+          "$ref": "field_template"
+        },
+        "shipment_mode": {
+          "$ref": "field_template"
+        },
+        "port_of_loading": {
+          "$ref": "field_template"
+        },
+        "port_of_discharge": {
+          "$ref": "field_template"
+        },
+        "currency": {
+          "$ref": "field_template"
+        },
+        "subtotal_amount": {
+          "$ref": "field_template"
+        },
+        "tax_amount": {
+          "$ref": "field_template"
+        },
+        "total_amount": {
+          "$ref": "field_template"
+        },
+        "total_quantity": {
+          "$ref": "field_template"
+        },
+        "quantity_unit": {
+          "$ref": "field_template"
+        },
+        "amount_in_words": {
+          "$ref": "field_template"
+        },
+        "carton_range": {
+          "$ref": "field_template"
+        },
+        "remarks": {
+          "$ref": "field_template"
+        }
+      },
+      "tables": [
+        {
+          "table_name": "line_items",
+          "row_template": {
+            "item_description": {
+              "$ref": "table_cell_template"
+            },
+            "customer_part_no": {
+              "$ref": "table_cell_template"
+            },
+            "supplier_part_no": {
+              "$ref": "table_cell_template"
+            },
+            "customer_po": {
+              "$ref": "table_cell_template"
+            },
+            "specification": {
+              "$ref": "table_cell_template"
+            },
+            "quantity": {
+              "$ref": "table_cell_template"
+            },
+            "quantity_unit": {
+              "$ref": "table_cell_template"
+            },
+            "unit_price": {
+              "$ref": "table_cell_template"
+            },
+            "amount": {
+              "$ref": "table_cell_template"
+            }
+          }
+        }
+      ]
+    },
+    "packing_list": {
+      "fields": {
+        "packing_list_no": {
+          "$ref": "field_template"
+        },
+        "packing_list_date": {
+          "$ref": "field_template"
+        },
+        "shipper_name": {
+          "$ref": "field_template"
+        },
+        "consignee_name": {
+          "$ref": "field_template"
+        },
+        "consignee_address": {
+          "$ref": "field_template"
+        },
+        "shipment_mode": {
+          "$ref": "field_template"
+        },
+        "port_of_loading": {
+          "$ref": "field_template"
+        },
+        "port_of_discharge": {
+          "$ref": "field_template"
+        },
+        "carton_range": {
+          "$ref": "field_template"
+        },
+        "total_cartons": {
+          "$ref": "field_template"
+        },
+        "total_quantity": {
+          "$ref": "field_template"
+        },
+        "quantity_unit": {
+          "$ref": "field_template"
+        },
+        "gross_weight": {
+          "$ref": "field_template"
+        },
+        "net_weight": {
+          "$ref": "field_template"
+        },
+        "weight_unit": {
+          "$ref": "field_template"
+        },
+        "remarks": {
+          "$ref": "field_template"
+        }
+      },
+      "tables": [
+        {
+          "table_name": "packing_items",
+          "row_template": {
+            "carton_no": {
+              "$ref": "table_cell_template"
+            },
+            "item_description": {
+              "$ref": "table_cell_template"
+            },
+            "customer_part_no": {
+              "$ref": "table_cell_template"
+            },
+            "supplier_part_no": {
+              "$ref": "table_cell_template"
+            },
+            "specification": {
+              "$ref": "table_cell_template"
+            },
+            "quantity": {
+              "$ref": "table_cell_template"
+            },
+            "quantity_unit": {
+              "$ref": "table_cell_template"
+            },
+            "net_weight": {
+              "$ref": "table_cell_template"
+            },
+            "gross_weight": {
+              "$ref": "table_cell_template"
+            }
+          }
+        }
+      ]
+    },
+    "info_sheet": {
+      "fields": {
+        "document_title": {
+          "$ref": "field_template"
+        },
+        "reference_no": {
+          "$ref": "field_template"
+        },
+        "reference_date": {
+          "$ref": "field_template"
+        },
+        "company_name": {
+          "$ref": "field_template"
+        },
+        "address": {
+          "$ref": "field_template"
+        },
+        "contact_name": {
+          "$ref": "field_template"
+        },
+        "contact_phone": {
+          "$ref": "field_template"
+        },
+        "contact_email": {
+          "$ref": "field_template"
+        },
+        "remarks": {
+          "$ref": "field_template"
+        }
+      },
+      "tables": []
+    },
+    "unknown": {
+      "fields": {
+        "document_title": {
+          "$ref": "field_template"
+        },
+        "document_no": {
+          "$ref": "field_template"
+        },
+        "document_date": {
+          "$ref": "field_template"
+        },
+        "issuer_name": {
+          "$ref": "field_template"
+        },
+        "receiver_name": {
+          "$ref": "field_template"
+        },
+        "total_amount": {
+          "$ref": "field_template"
+        },
+        "currency": {
+          "$ref": "field_template"
+        },
+        "remarks": {
+          "$ref": "field_template"
+        }
+      },
+      "tables": [
+        {
+          "table_name": "generic_table",
+          "row_template": {
+            "col_1": {
+              "$ref": "table_cell_template"
+            },
+            "col_2": {
+              "$ref": "table_cell_template"
+            },
+            "col_3": {
+              "$ref": "table_cell_template"
+            },
+            "col_4": {
+              "$ref": "table_cell_template"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "document_type": "",
+  "document_title": "",
+  "seller_name": "",
+  "seller_address": "",
+
+  "ship_to_party": {
+    "company_name": "",
+    "address_lines": [],
+    "country": ""
+  },
+
+  "general_information": {
+    "packing_no": "",
+    "invoice_no": "",
+    "customer_code": "",
+    "reference_no": "",
+    "eta": "",
+    "etd": "",
+    "shipping_point": "",
+    "shipping_term": "",
+    "page": ""
+  },
+
+  "shipping_information": {
+    "carrier": "",
+    "vessel_or_flight": "",
+    "mawb_no": "",
+    "hawb_no": "",
+    "country_of_origin": ""
+  },
+
+  "details": [
+    {
+      "ctn_no": "",
+      "item_content/description": "",
+      "quantity_per_ctn": "",
+      "quantity_unit": "",
+      "gross_weight_kgs": "",
+      "net_weight_kgs": "",
+      "measurement_cbm": ""
+    }
+  ],
+
+  "summary": {
+    "total_ctns": "",
+    "total_quantity": "",
+    "total_gross_weight_kgs": "",
+    "total_net_weight_kgs": "",
+    "total_measurement_cbm": ""
+  },
+
+  "customer_po_section": {
+    "liteon_item_no": "",
+    "customer_part_no": "",
+    "customer_po": "",
+    "quantity_per_box": ""
+  },
+
+  "shipping_mark": [],
+  "signature_text": "",
+  "remarks": ""
+}
