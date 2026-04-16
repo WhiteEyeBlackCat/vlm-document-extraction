@@ -38,4 +38,10 @@ def parse_args():
         default="none",
         help="Optional bitsandbytes quantization mode for inference.",
     )
+    parser.add_argument(
+        "--gpu",
+        type=str,
+        default="auto",
+        help='GPU device to use. "auto" lets HuggingFace decide, or specify e.g. "0", "1", "cuda:0".',
+    )
     return parser.parse_args()

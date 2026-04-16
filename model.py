@@ -47,9 +47,10 @@ class model_function:
 
         raise ValueError("Only none, 8bit, and 4bit quantization are available")
 
-    def build_model(self, quantization: str = "none"):
+    def build_model(self, quantization: str = "none", gpu: str = "auto"):
+        device_map = "auto" if gpu == "auto" else f"cuda:{gpu.lstrip('cuda:')}"
         model_kwargs = {
-            "device_map": "auto",
+            "device_map": device_map,
         }
 
         if self.model_id.startswith("meta-llama") and quantization != "none":
@@ -140,9 +141,18 @@ class model_function:
 
         return image_labels, images, preview_images
 
+    @staticmethod
+    def _resize_for_model(image: Image.Image, max_size: int = 1024) -> Image.Image:
+        if max(image.size) > max_size:
+            image = image.copy()
+            image.thumbnail((max_size, max_size), Image.LANCZOS)
+        return image
+
     def load_images(self, input_path: Path):
         if input_path.suffix.lower() == ".pdf":
-            return self._load_pdf_images(input_path)
+            image_labels, images, preview_images = self._load_pdf_images(input_path)
+            images = [self._resize_for_model(img) for img in images]
+            return image_labels, images, preview_images
 
         folder = input_path
         preferred_order = [
@@ -156,7 +166,7 @@ class model_function:
         if not image_paths:
             raise FileNotFoundError(f"No JPG files found in {folder}")
 
-        images = [Image.open(path).convert("RGB") for path in image_paths]
+        images = [self._resize_for_model(Image.open(path).convert("RGB")) for path in image_paths]
         return image_paths, images, None
 
     def build_messages(self, image_count: int):
@@ -170,11 +180,12 @@ class model_function:
         max_tokens: int,
         seed: int,
         quantization: str = "none",
+        gpu: str = "auto",
     ):
         self.set_seed(seed)
         image_paths, images, preview_images = self.load_images(input_path)
 
-        model, processor = self.build_model(quantization=quantization)
+        model, processor = self.build_model(quantization=quantization, gpu=gpu)
         messages = self.build_messages(len(images))
         input_text = processor.apply_chat_template(
             messages,

@@ -1,4 +1,5 @@
 from io import BytesIO
+import json
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Thread
@@ -105,6 +106,16 @@ def run_extraction(model_name: str, input_path: str, max_tokens: int, seed: int,
         thread.join()
         producer.join()
 
+        # JSON validation: try to parse and pretty-print the final output
+        elapsed = time.time() - t_start
+        header = f"⏱ {elapsed:.1f}s  |  {model_name}  |  {model.device}  |  quant: {quantization}\n\n"
+        try:
+            parsed = json.loads(partial.strip())
+            formatted = json.dumps(parsed, ensure_ascii=False, indent=2)
+            yield gallery_items, header + formatted
+        except json.JSONDecodeError as e:
+            yield gallery_items, header + partial + f"\n\n⚠️ JSON 解析失敗: {e}"
+
     except Exception as exc:
         error_msg = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
         yield gallery_items if "gallery_items" in locals() else [], f"錯誤：\n{error_msg}"
@@ -131,7 +142,7 @@ with gr.Blocks(title="Document Extraction Viewer", theme=gr.themes.Soft(), css=C
             value="none",
             label="Quantization",
         )
-        max_tokens_num = gr.Number(value=300, label="Max Tokens", precision=0)
+        max_tokens_num = gr.Number(value=800, label="Max Tokens", precision=0)
         seed_num = gr.Number(value=42, label="Seed", precision=0)
 
     input_path_box = gr.Textbox(

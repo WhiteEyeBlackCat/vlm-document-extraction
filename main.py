@@ -11,6 +11,7 @@ def main():
         args.max_tokens,
         args.seed,
         quantization=args.quantization,
+        gpu=args.gpu,
     )
 
     print("Input images:")
