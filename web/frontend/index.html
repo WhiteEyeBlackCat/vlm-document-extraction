@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document Extraction Web UI</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">FastAPI Prototype</p>
+          <h1>Document Extraction</h1>
+          <p class="subcopy">
+            保留 Python 推論核心，先把 Gradio 換成更輕的 API + 前端頁面。
+          </p>
+        </div>
+        <div class="hero-card">
+          <div id="timer" class="timer">00:00.0</div>
+          <div id="status" class="status">待命中</div>
+        </div>
+      </section>
+
+      <section class="tabs panel">
+        <div class="tab-buttons">
+          <button class="tab-btn active" type="button" data-tab="single">單檔萃取</button>
+          <button class="tab-btn" type="button" data-tab="batch">批次處理</button>
+        </div>
+
+        <div class="tab-panel active" data-panel="single">
+          <form id="extract-form" class="controls">
+            <label>
+              <span>Model</span>
+              <select id="model_name" name="model_name"></select>
+            </label>
+            <label>
+              <span>Quantization</span>
+              <select id="quantization" name="quantization"></select>
+            </label>
+            <label>
+              <span>GPU</span>
+              <select id="gpu" name="gpu"></select>
+            </label>
+            <label>
+              <span>Max Tokens</span>
+              <input id="max_tokens" name="max_tokens" type="number" min="1" step="1" />
+            </label>
+            <label class="wide">
+              <span>PDF / 圖片</span>
+              <input id="file" name="file" type="file" accept=".pdf,.jpg,.jpeg,.png" />
+            </label>
+            <label class="wide">
+              <span>圖片資料夾路徑</span>
+              <input
+                id="folder_path"
+                name="folder_path"
+                type="text"
+                placeholder="例如 data/jpg/"
+              />
+            </label>
+            <button id="submit-btn" type="submit">Run Extraction</button>
+          </form>
+        </div>
+
+        <div class="tab-panel" data-panel="batch">
+          <form id="batch-form" class="controls">
+            <label>
+              <span>Model</span>
+              <select id="batch_model_name" name="model_name"></select>
+            </label>
+            <label>
+              <span>Quantization</span>
+              <select id="batch_quantization" name="quantization"></select>
+            </label>
+            <label>
+              <span>GPU</span>
+              <select id="batch_gpu" name="gpu"></select>
+            </label>
+            <label>
+              <span>Max Tokens</span>
+              <input id="batch_max_tokens" name="max_tokens" type="number" min="1" step="1" />
+            </label>
+            <label class="wide">
+              <span>批次 PDF</span>
+              <input id="batch_files" name="files" type="file" accept=".pdf" multiple />
+            </label>
+            <label class="wide">
+              <span>輸出目錄</span>
+              <input id="output_dir" name="output_dir" type="text" value="./output" />
+            </label>
+            <button id="batch-submit-btn" type="submit">Run Batch</button>
+          </form>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="panel">
+          <div class="section-head">
+            <h2>Input Preview</h2>
+            <p id="meta-line">尚未執行</p>
+          </div>
+          <div id="gallery" class="gallery empty">尚無預覽</div>
+        </article>
+
+        <article class="panel">
+          <div class="section-head">
+            <h2>Extraction Result</h2>
+            <button id="download-btn" type="button" disabled>Download JSON</button>
+          </div>
+          <pre id="result" class="result">尚未執行</pre>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <h2>Batch Result</h2>
+          <p id="batch-meta-line">尚未執行</p>
+        </div>
+        <pre id="batch-result" class="result compact">尚未執行</pre>
+      </section>
+    </main>
+
+    <div id="lightbox" class="lightbox hidden" aria-hidden="true">
+      <div class="lightbox-backdrop" data-close-lightbox="true"></div>
+      <div class="lightbox-panel">
+        <div class="lightbox-toolbar">
+          <div id="lightbox-title" class="lightbox-title">Preview</div>
+          <div class="lightbox-actions">
+            <button id="zoom-out-btn" type="button">-</button>
+            <button id="zoom-reset-btn" type="button">100%</button>
+            <button id="zoom-in-btn" type="button">+</button>
+            <button id="lightbox-close-btn" type="button">Close</button>
+          </div>
+        </div>
+        <div id="lightbox-content" class="lightbox-content"></div>
+      </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+  </html>
