@@ -16,13 +16,14 @@ from model import MODEL_ID_MAP, model_function, resolve_model_id
 _model_cache: dict = {}
 MODEL_CHOICES = list(MODEL_ID_MAP.keys())
 QUANT_CHOICES = ["none", "8bit", "4bit"]
+GPU_CHOICES = ["auto"] + [str(i) for i in range(torch.cuda.device_count())]
 
 
-def _get_model(model_id: str, quantization: str):
-    key = (model_id, quantization)
+def _get_model(model_id: str, quantization: str, gpu: str = "auto"):
+    key = (model_id, quantization, gpu)
     if key not in _model_cache:
         runner = model_function(model_id)
-        model, processor = runner.build_model(quantization=quantization)
+        model, processor = runner.build_model(quantization=quantization, gpu=gpu)
         _model_cache.clear()
         _model_cache[key] = (model, processor)
     return _model_cache[key]
@@ -48,7 +49,7 @@ def _resolve_path(uploaded_file, folder_path: str):
     return None
 
 
-def run_extraction(model_name, uploaded_file, folder_path, max_tokens, seed, quantization):
+def run_extraction(model_name, uploaded_file, folder_path, max_tokens, quantization, gpu):
     input_path = _resolve_path(uploaded_file, folder_path)
     if input_path is None:
         yield [], "請選擇檔案或輸入資料夾路徑。", gr.update(visible=False), gr.update()
@@ -63,15 +64,14 @@ def run_extraction(model_name, uploaded_file, folder_path, max_tokens, seed, qua
         # Step 1: load images immediately
         image_paths, images, preview_images = runner.load_images(input_path)
         gallery_items = _build_gallery(image_paths, preview_images)
-        yield gallery_items, "⏳ 圖片載入完成，推論中...", gr.update(visible=False)
+        yield gallery_items, "⏳ 圖片載入完成，推論中...", gr.update(visible=False), gr.update()
 
         # Step 2: model loading status
         model_id = resolve_model_id(model_name)
-        if (model_id, quantization) not in _model_cache:
-            yield gallery_items, "⌛ 首次使用，載入模型中（約 30 秒）...", gr.update(visible=False)
+        if (model_id, quantization, gpu) not in _model_cache:
+            yield gallery_items, "⌛ 首次使用，載入模型中（約 30 秒）...", gr.update(visible=False), gr.update()
 
-        runner.set_seed(seed)
-        model, processor = _get_model(model_id, quantization)
+        model, processor = _get_model(model_id, quantization, gpu)
         messages = runner.build_messages(len(images))
         input_text = processor.apply_chat_template(messages, add_generation_prompt=True)
 
@@ -111,7 +111,7 @@ def run_extraction(model_name, uploaded_file, folder_path, max_tokens, seed, qua
 
             elapsed = time.time() - t_start
             header = f"⏱ {elapsed:.1f}s  |  {model_name}  |  {model.device}  |  quant: {quantization}\n\n"
-            yield gallery_items, header + partial, gr.update(visible=False)
+            yield gallery_items, header + partial, gr.update(visible=False), gr.update()
 
         thread.join()
         producer.join()
@@ -133,7 +133,7 @@ def run_extraction(model_name, uploaded_file, folder_path, max_tokens, seed, qua
         yield gallery_items, f"錯誤：\n{error_msg}", gr.update(visible=False), gr.update(value=None)
 
 
-def run_batch(model_name, batch_files, max_tokens, seed, quantization, output_dir):
+def run_batch(model_name, batch_files, max_tokens, quantization, gpu, output_dir):
     if not batch_files:
         yield "請選擇至少一個 PDF 檔案。"
         return
@@ -142,12 +142,11 @@ def run_batch(model_name, batch_files, max_tokens, seed, quantization, output_di
     out_dir.mkdir(parents=True, exist_ok=True)
 
     model_id = resolve_model_id(model_name)
-    if (model_id, quantization) not in _model_cache:
+    if (model_id, quantization, gpu) not in _model_cache:
         yield "⌛ 載入模型中...\n"
 
     runner = model_function(model_id)
-    runner.set_seed(int(seed))
-    model, processor = _get_model(model_id, quantization)
+    model, processor = _get_model(model_id, quantization, gpu)
 
     results = []
     total = len(batch_files)
@@ -201,7 +200,7 @@ with gr.Blocks(title="Document Extraction Viewer", theme=gr.themes.Soft(), css=C
                 model_dd = gr.Dropdown(choices=MODEL_CHOICES, value="Qwen2B", label="Model")
                 quant_dd = gr.Dropdown(choices=QUANT_CHOICES, value="none", label="Quantization")
                 max_tokens_num = gr.Number(value=800, label="Max Tokens", precision=0)
-                seed_num = gr.Number(value=42, label="Seed", precision=0)
+                gpu_dd = gr.Dropdown(choices=GPU_CHOICES, value="auto", label="GPU")
 
             with gr.Row():
                 file_picker = gr.File(
@@ -223,7 +222,7 @@ with gr.Blocks(title="Document Extraction Viewer", theme=gr.themes.Soft(), css=C
 
             run_btn.click(
                 fn=run_extraction,
-                inputs=[model_dd, file_picker, folder_path, max_tokens_num, seed_num, quant_dd],
+                inputs=[model_dd, file_picker, folder_path, max_tokens_num, quant_dd, gpu_dd],
                 outputs=[gallery, output_box, download_btn, file_picker],
             )
 
@@ -234,7 +233,7 @@ with gr.Blocks(title="Document Extraction Viewer", theme=gr.themes.Soft(), css=C
                 model_dd_b = gr.Dropdown(choices=MODEL_CHOICES, value="Qwen2B", label="Model")
                 quant_dd_b = gr.Dropdown(choices=QUANT_CHOICES, value="none", label="Quantization")
                 max_tokens_b = gr.Number(value=800, label="Max Tokens", precision=0)
-                seed_b = gr.Number(value=42, label="Seed", precision=0)
+                gpu_dd_b = gr.Dropdown(choices=GPU_CHOICES, value="auto", label="GPU")
                 output_dir_b = gr.Textbox(value="./output", label="輸出目錄")
 
             batch_files = gr.File(
@@ -247,7 +246,7 @@ with gr.Blocks(title="Document Extraction Viewer", theme=gr.themes.Soft(), css=C
 
             batch_run_btn.click(
                 fn=run_batch,
-                inputs=[model_dd_b, batch_files, max_tokens_b, seed_b, quant_dd_b, output_dir_b],
+                inputs=[model_dd_b, batch_files, max_tokens_b, quant_dd_b, gpu_dd_b, output_dir_b],
                 outputs=[batch_output],
             )
 
