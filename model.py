@@ -87,11 +87,6 @@ class model_function:
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
 
-        torch.use_deterministic_algorithms(True, warn_only=True)
-        if hasattr(torch.backends, "cudnn"):
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
-
     def _get_pdf_page_count(self, pdf_path: Path):
         if not pdf_path.exists() or not pdf_path.is_file():
             raise FileNotFoundError(f"{pdf_path} does not exist.")
