@@ -1,7 +1,8 @@
 from html import escape
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from io import BytesIO
 from pathlib import Path
+import traceback
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from PIL import Image
@@ -11,6 +12,7 @@ from model import MODEL_ID_MAP, model_function, resolve_model_id
 
 HOST = "127.0.0.1"
 PORT = 8000
+QUANTIZATION_OPTIONS = ["none", "8bit", "4bit"]
 
 
 def list_images(folder: Path):
@@ -24,13 +26,27 @@ def list_images(folder: Path):
     return image_paths
 
 
-def render_page(model_name="", folder="", max_tokens="300", seed="42", result="", error="", image_paths=None):
+def render_page(
+    model_name="Qwen2B",
+    folder="",
+    max_tokens="300",
+    seed="42",
+    quantization="none",
+    result="",
+    error="",
+    image_paths=None,
+):
     image_paths = image_paths or []
 
     option_html = []
     for name in MODEL_ID_MAP:
         selected = " selected" if name == model_name else ""
         option_html.append(f'<option value="{name}"{selected}>{name}</option>')
+
+    quantization_html = []
+    for name in QUANTIZATION_OPTIONS:
+        selected = " selected" if name == quantization else ""
+        quantization_html.append(f'<option value="{name}"{selected}>{name}</option>')
 
     image_html = []
     for image_path in image_paths:
@@ -94,7 +110,7 @@ def render_page(model_name="", folder="", max_tokens="300", seed="42", result=""
     }}
     .controls {{
       display: grid;
-      grid-template-columns: 160px 1fr 130px 110px 140px;
+      grid-template-columns: 160px 1fr 130px 110px 130px 140px;
       gap: 12px;
       align-items: end;
       background: var(--panel);
@@ -235,6 +251,12 @@ def render_page(model_name="", folder="", max_tokens="300", seed="42", result=""
         <input id="seed" name="seed" value="{escape(seed)}" required />
       </div>
       <div>
+        <label for="quantization">Quantization</label>
+        <select id="quantization" name="quantization">
+          {''.join(quantization_html)}
+        </select>
+      </div>
+      <div>
         <button type="submit">Run Extraction</button>
       </div>
     </form>
@@ -288,6 +310,7 @@ class ExtractionHandler(BaseHTTPRequestHandler):
         folder = form.get("folder", [""])[0].strip()
         max_tokens = form.get("max_tokens", ["300"])[0].strip()
         seed = form.get("seed", ["42"])[0].strip()
+        quantization = form.get("quantization", ["none"])[0].strip()
 
         image_paths = []
         result_text = ""
@@ -297,11 +320,18 @@ class ExtractionHandler(BaseHTTPRequestHandler):
             folder_path = Path(folder)
             image_paths = list_images(folder_path)
             runner = model_function(resolve_model_id(model_name))
-            result = runner.run_inference(folder_path, int(max_tokens), int(seed))
+            result = runner.run_inference(
+                folder_path,
+                int(max_tokens),
+                int(seed),
+                quantization=quantization,
+            )
             result_text = result["response"]
             image_paths = result["image_paths"]
         except Exception as exc:
-            error_text = str(exc)
+            error_text = "".join(
+                traceback.format_exception(type(exc), exc, exc.__traceback__)
+            )
 
         self._send_html(
             render_page(
@@ -309,6 +339,7 @@ class ExtractionHandler(BaseHTTPRequestHandler):
                 folder=folder,
                 max_tokens=max_tokens,
                 seed=seed,
+                quantization=quantization,
                 result=result_text,
                 error=error_text,
                 image_paths=image_paths,
@@ -343,7 +374,7 @@ class ExtractionHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    server = ThreadingHTTPServer((HOST, PORT), ExtractionHandler)
+    server = HTTPServer((HOST, PORT), ExtractionHandler)
     print(f"Serving on http://{HOST}:{PORT}")
     print("If you are on a remote machine, use SSH port forwarding to open it in your browser.")
     server.serve_forever()

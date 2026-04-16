@@ -30,4 +30,11 @@ def parse_args():
         default=42,
         help="Random seed used for deterministic generation.",
     )
+    parser.add_argument(
+        "--quantization",
+        type=str,
+        choices=["none", "8bit", "4bit"],
+        default="none",
+        help="Optional bitsandbytes quantization mode for inference.",
+    )
     return parser.parse_args()

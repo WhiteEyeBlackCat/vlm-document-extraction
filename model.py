@@ -1,9 +1,11 @@
 from pathlib import Path
+import importlib.util
 
 import torch
 from PIL import Image
 from transformers import (
     AutoProcessor,
+    BitsAndBytesConfig,
     MllamaForConditionalGeneration,
     Qwen3VLForConditionalGeneration,
 )
@@ -22,18 +24,55 @@ class model_function:
     def __init__(self, model_id):
         self.model_id = model_id
 
-    def build_model(self):
+    def _build_quantization_config(self, quantization: str):
+        if quantization == "none":
+            return None
+
+        if importlib.util.find_spec("bitsandbytes") is None:
+            raise ImportError(
+                "bitsandbytes is not installed. Install it first to use 4bit or 8bit quantization."
+            )
+
+        if quantization == "8bit":
+            return BitsAndBytesConfig(load_in_8bit=True)
+
+        if quantization == "4bit":
+            return BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16,
+            )
+
+        raise ValueError("Only none, 8bit, and 4bit quantization are available")
+
+    def build_model(self, quantization: str = "none"):
+        model_kwargs = {
+            "device_map": "auto",
+        }
+
+        if self.model_id.startswith("meta-llama") and quantization != "none":
+            raise ValueError(
+                "bitsandbytes quantization is currently disabled for "
+                "meta-llama/Llama-3.2-Vision models in this app because "
+                "the combination can fail inside bitsandbytes. "
+                "Use --quantization none, or switch to a Qwen model."
+            )
+
+        quantization_config = self._build_quantization_config(quantization)
+        if quantization_config is None:
+            model_kwargs["torch_dtype"] = torch.bfloat16
+        else:
+            model_kwargs["quantization_config"] = quantization_config
+
         if self.model_id.startswith("meta-llama"):
             model = MllamaForConditionalGeneration.from_pretrained(
                 self.model_id,
-                torch_dtype=torch.bfloat16,
-                device_map="auto",
+                **model_kwargs,
             )
         elif self.model_id.startswith("Qwen"):
             model = Qwen3VLForConditionalGeneration.from_pretrained(
                 self.model_id,
-                torch_dtype=torch.bfloat16,
-                device_map="auto",
+                **model_kwargs,
             )
         else:
             raise ValueError("Only Qwen and llama are available")
@@ -71,11 +110,17 @@ class model_function:
         content.append({"type": "text", "text": Prompt})
         return [{"role": "user", "content": content}]
 
-    def run_inference(self, folder: Path, max_tokens: int, seed: int):
+    def run_inference(
+        self,
+        folder: Path,
+        max_tokens: int,
+        seed: int,
+        quantization: str = "none",
+    ):
         self.set_seed(seed)
         image_paths, images = self.load_images(folder)
 
-        model, processor = self.build_model()
+        model, processor = self.build_model(quantization=quantization)
         messages = self.build_messages(len(images))
         input_text = processor.apply_chat_template(
             messages,
@@ -86,7 +131,11 @@ class model_function:
             images=images,
             text=input_text,
             return_tensors="pt",
-        ).to(model.device)
+        )
+        inputs = {
+            key: value.contiguous().to(model.device) if torch.is_tensor(value) else value
+            for key, value in inputs.items()
+        }
 
         output = model.generate(
             **inputs,
@@ -104,6 +153,7 @@ class model_function:
             "response": response,
             "device": str(model.device),
             "model_id": self.model_id,
+            "quantization": quantization,
         }
 
 
