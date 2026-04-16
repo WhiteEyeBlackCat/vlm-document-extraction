@@ -1,15 +1,12 @@
 from io import BytesIO
 import json
 from pathlib import Path
-from queue import Empty, Queue
-from threading import Thread
 import time
 import traceback
 
 import gradio as gr
 import torch
 from PIL import Image
-from transformers import TextIteratorStreamer
 
 from model import MODEL_ID_MAP, model_function, resolve_model_id
 
@@ -81,40 +78,14 @@ def run_extraction(model_name, uploaded_file, folder_path, max_tokens, quantizat
             for k, v in inputs.items()
         }
 
-        streamer = TextIteratorStreamer(processor, skip_prompt=True, skip_special_tokens=True)
-        generate_kwargs = dict(
-            **inputs, max_new_tokens=int(max_tokens), do_sample=False, num_beams=1, streamer=streamer,
+        output = model.generate(
+            **inputs,
+            max_new_tokens=int(max_tokens),
+            do_sample=False,
+            num_beams=1,
         )
-        token_queue: Queue = Queue()
-
-        def produce_tokens():
-            for token in streamer:
-                token_queue.put(token)
-            token_queue.put(None)
-
-        thread = Thread(target=model.generate, kwargs=generate_kwargs)
-        producer = Thread(target=produce_tokens)
-        thread.start()
-        producer.start()
-
-        partial = ""
-        done = False
-        while not done:
-            try:
-                token = token_queue.get(timeout=0.1)
-                if token is None:
-                    done = True
-                else:
-                    partial += token
-            except Empty:
-                pass
-
-            elapsed = time.time() - t_start
-            header = f"⏱ {elapsed:.1f}s  |  {model_name}  |  {model.device}  |  quant: {quantization}\n\n"
-            yield gallery_items, header + partial, gr.update(visible=False), gr.update()
-
-        thread.join()
-        producer.join()
+        prompt_length = inputs["input_ids"].shape[-1]
+        partial = processor.decode(output[0][prompt_length:], skip_special_tokens=True).strip()
 
         # JSON validation
         elapsed = time.time() - t_start
