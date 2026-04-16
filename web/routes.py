@@ -5,7 +5,11 @@ import traceback
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
+from services.layout import LAYOUT_ENGINE_CHOICES
+from services.ocr import OCR_ENGINE_CHOICES
 from services.service import (
+    AVAILABLE_LAYOUT_ENGINES,
+    AVAILABLE_OCR_ENGINES,
     GPU_CHOICES,
     MODEL_CHOICES,
     QUANT_CHOICES,
@@ -31,7 +35,13 @@ def get_options():
             "quantization": "none",
             "gpu": "auto",
             "max_tokens": 300,
+            "ocr_engine": "paddleocr",
+            "layout_engine": "doclayout_yolo",
         },
+        "layout_engines": LAYOUT_ENGINE_CHOICES,
+        "available_layout_engines": AVAILABLE_LAYOUT_ENGINES,
+        "ocr_engines": OCR_ENGINE_CHOICES,
+        "available_ocr_engines": AVAILABLE_OCR_ENGINES,
     }
 
 
@@ -41,6 +51,8 @@ async def extract_document(
     max_tokens: int = Form(300),
     quantization: str = Form("none"),
     gpu: str = Form("auto"),
+    ocr_engine: str = Form("paddleocr"),
+    layout_engine: str = Form("doclayout_yolo"),
     folder_path: str = Form(""),
     file: UploadFile | None = File(default=None),
 ):
@@ -53,6 +65,8 @@ async def extract_document(
                 max_tokens=max_tokens,
                 quantization=quantization,
                 gpu=gpu,
+                ocr_engine=ocr_engine,
+                layout_engine=layout_engine,
             )
         elif folder_path.strip():
             result = run_extraction_from_path(
@@ -61,6 +75,8 @@ async def extract_document(
                 max_tokens=max_tokens,
                 quantization=quantization,
                 gpu=gpu,
+                ocr_engine=ocr_engine,
+                layout_engine=layout_engine,
             )
         else:
             raise HTTPException(status_code=400, detail="請上傳檔案或輸入資料夾路徑。")
@@ -82,12 +98,23 @@ async def extract_document(
             "elapsed_seconds": result["elapsed_seconds"],
             "cache_miss": result["cache_miss"],
             "json_valid": result["json_error"] is None,
+            "layout_engine": result["layout_engine"],
+            "layout_error": result["layout_error"],
+            "layout_region_count": len(result["layout_regions"]),
+            "ocr_engine": result["ocr_engine"],
+            "ocr_error": result["ocr_error"],
+            "ocr_block_count": len(result["ocr_blocks"]),
+            "bbox_annotation_count": len(result["bbox_annotations"]),
         },
         "input_labels": result["input_labels"],
         "gallery": gallery,
         "raw_response": result["raw_response"],
         "parsed_json": result["parsed_json"],
         "json_error": result["json_error"],
+        "layout_regions": result["layout_regions"],
+        "parsed_layout": result["parsed_layout"],
+        "ocr_blocks": result["ocr_blocks"],
+        "bbox_annotations": result["bbox_annotations"],
     }
 
 

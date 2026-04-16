@@ -11,11 +11,25 @@ import torch
 from PIL import Image
 
 from model import MODEL_ID_MAP, model_function, resolve_model_id
+from services.annotate import build_bbox_annotations
+from services.layout import (
+    LAYOUT_ENGINE_CHOICES,
+    detect_available_engines as detect_available_layout_engines,
+    layout_engine_issue,
+    layout_engine_ready,
+    run_layout,
+)
+from services.ocr import OCR_ENGINE_CHOICES, detect_available_engines, ocr_engine_ready, run_ocr
+from services.parse import build_layout_view
 
 
 MODEL_CHOICES = list(MODEL_ID_MAP.keys())
 QUANT_CHOICES = ["none", "8bit", "4bit"]
 GPU_CHOICES = ["auto"] + [str(i) for i in range(torch.cuda.device_count())]
+AVAILABLE_OCR_ENGINES = detect_available_engines()
+AVAILABLE_LAYOUT_ENGINES = [
+    engine for engine in detect_available_layout_engines() if layout_engine_ready(engine)
+]
 
 _model_cache: dict[tuple[str, str, str], tuple[Any, Any]] = {}
 
@@ -30,20 +44,29 @@ def get_model(model_id: str, quantization: str, gpu: str = "auto"):
     return _model_cache[key]
 
 
-def build_gallery_items(image_paths, preview_images):
+def build_gallery_items(image_paths, preview_images, rendered_images):
     if preview_images:
-        return [
-            {
-                "name": f"page-{i + 1}",
-                "image_bytes": img_bytes,
-                "media_type": "image/jpeg",
-            }
-            for i, img_bytes in enumerate(preview_images)
-        ]
+        items = []
+        for i, img_bytes in enumerate(preview_images):
+            image = Image.open(BytesIO(img_bytes))
+            rendered = rendered_images[i]
+            items.append(
+                {
+                    "name": f"page-{i + 1}",
+                    "image_bytes": img_bytes,
+                    "media_type": "image/jpeg",
+                    "width": rendered.width,
+                    "height": rendered.height,
+                    "preview_width": image.width,
+                    "preview_height": image.height,
+                }
+            )
+        return items
 
     items = []
-    for path in image_paths:
+    for index, path in enumerate(image_paths):
         image = Image.open(path).convert("RGB")
+        rendered = rendered_images[index]
         buffer = BytesIO()
         image.save(buffer, format="JPEG", quality=90)
         items.append(
@@ -51,6 +74,10 @@ def build_gallery_items(image_paths, preview_images):
                 "name": Path(str(path)).name,
                 "image_bytes": buffer.getvalue(),
                 "media_type": "image/jpeg",
+                "width": rendered.width,
+                "height": rendered.height,
+                "preview_width": image.width,
+                "preview_height": image.height,
             }
         )
     return items
@@ -64,6 +91,10 @@ def encode_gallery_data_urls(gallery_items):
             "name": item["name"],
             "src": f"data:{item['media_type']};base64,{base64.b64encode(item['image_bytes']).decode('ascii')}",
             "kind": "image",
+            "width": item.get("width"),
+            "height": item.get("height"),
+            "preview_width": item.get("preview_width"),
+            "preview_height": item.get("preview_height"),
         }
         for item in gallery_items
     ]
@@ -71,8 +102,8 @@ def encode_gallery_data_urls(gallery_items):
 
 def get_preview_from_path(input_path: Path) -> dict[str, Any]:
     runner = model_function(MODEL_ID_MAP["Qwen2B"])
-    image_paths, _, preview_images = runner.load_images(input_path)
-    gallery_items = build_gallery_items(image_paths, preview_images)
+    image_paths, images, preview_images = runner.load_images(input_path)
+    gallery_items = build_gallery_items(image_paths, preview_images, images)
     return {
         "input_labels": [str(path) for path in image_paths],
         "gallery": encode_gallery_data_urls(gallery_items),
@@ -85,6 +116,8 @@ def run_extraction_from_path(
     max_tokens: int,
     quantization: str,
     gpu: str,
+    ocr_engine: str = "none",
+    layout_engine: str = "none",
 ) -> dict[str, Any]:
     t_start = time.time()
     runner = model_function(resolve_model_id(model_name))
@@ -119,6 +152,35 @@ def run_extraction_from_path(
     except json.JSONDecodeError as exc:
         json_error = str(exc)
 
+    layout_regions: list[dict[str, Any]] = []
+    layout_error = None
+    if layout_engine != "none":
+        if not layout_engine_ready(layout_engine):
+            layout_error = layout_engine_issue(layout_engine) or (
+                f"Layout engine '{layout_engine}' is not available."
+            )
+        else:
+            try:
+                layout_regions = run_layout(images, engine=layout_engine)
+            except Exception as exc:
+                layout_error = str(exc)
+    else:
+        layout_regions = run_layout(images, engine="none")
+
+    ocr_blocks: list[dict[str, Any]] = []
+    ocr_error = None
+    if ocr_engine != "none":
+        if not ocr_engine_ready(ocr_engine):
+            ocr_error = f"OCR engine '{ocr_engine}' is not installed."
+        else:
+            try:
+                ocr_blocks = run_ocr(images, engine=ocr_engine)
+            except Exception as exc:
+                ocr_error = str(exc)
+
+    parsed_layout = build_layout_view(layout_regions, ocr_blocks)
+    bbox_annotations = build_bbox_annotations(parsed_json, ocr_blocks)
+
     return {
         "model_name": model_name,
         "model_id": model_id,
@@ -127,10 +189,20 @@ def run_extraction_from_path(
         "elapsed_seconds": round(elapsed, 2),
         "cache_miss": cache_miss,
         "input_labels": [str(path) for path in image_paths],
-        "gallery_items": build_gallery_items(image_paths, preview_images),
+        "gallery_items": build_gallery_items(image_paths, preview_images, images),
         "raw_response": response,
         "parsed_json": parsed_json,
         "json_error": json_error,
+        "ocr_engine": ocr_engine,
+        "ocr_available_engines": AVAILABLE_OCR_ENGINES,
+        "layout_engine": layout_engine,
+        "layout_available_engines": AVAILABLE_LAYOUT_ENGINES,
+        "layout_regions": layout_regions,
+        "layout_error": layout_error,
+        "parsed_layout": parsed_layout,
+        "ocr_blocks": ocr_blocks,
+        "ocr_error": ocr_error,
+        "bbox_annotations": bbox_annotations,
     }
 
 
@@ -141,6 +213,8 @@ def run_extraction_from_upload(
     max_tokens: int,
     quantization: str,
     gpu: str,
+    ocr_engine: str = "none",
+    layout_engine: str = "none",
     ) -> dict[str, Any]:
     suffix = Path(filename or "upload.bin").suffix or ".bin"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
@@ -154,6 +228,8 @@ def run_extraction_from_upload(
             max_tokens=max_tokens,
             quantization=quantization,
             gpu=gpu,
+            ocr_engine=ocr_engine,
+            layout_engine=layout_engine,
         )
     finally:
         temp_path.unlink(missing_ok=True)

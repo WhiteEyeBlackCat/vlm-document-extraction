@@ -236,6 +236,30 @@ button:disabled {
   background: #fff;
 }
 
+.preview-stage {
+  position: relative;
+}
+
+.bbox-box {
+  position: absolute;
+  border: 2px solid #ff6b35;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8) inset;
+  pointer-events: none;
+}
+
+.bbox-label {
+  position: absolute;
+  top: -24px;
+  left: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 107, 53, 0.92);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .pdf-frame {
   display: block;
   width: 100%;
@@ -346,6 +370,10 @@ button:disabled {
   display: grid;
   place-items: start center;
   padding: 20px;
+}
+
+.lightbox-preview {
+  position: relative;
 }
 
 .lightbox-image {

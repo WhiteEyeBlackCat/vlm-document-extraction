@@ -30,6 +30,7 @@ let previewRequestId = 0;
 let lightboxZoom = 1;
 let lightboxKind = null;
 let lightboxSrc = "";
+let lightboxItem = null;
 
 function setStatus(text) {
   statusEl.textContent = text;
@@ -63,6 +64,72 @@ function stopTimer() {
   }
 }
 
+function renderBoxes(container, overlays) {
+  for (const overlay of overlays || []) {
+    const [x1, y1, x2, y2] = overlay.bbox;
+    const box = document.createElement("div");
+    box.className = "bbox-box";
+    if (overlay.type) {
+      box.dataset.type = overlay.type;
+    }
+    box.style.left = `${x1 * 100}%`;
+    box.style.top = `${y1 * 100}%`;
+    box.style.width = `${(x2 - x1) * 100}%`;
+    box.style.height = `${(y2 - y1) * 100}%`;
+
+    const label = document.createElement("div");
+    label.className = "bbox-label";
+    label.textContent = overlay.label;
+    box.appendChild(label);
+    container.appendChild(box);
+  }
+}
+
+function buildAnnotatedItems(items, annotations, layoutRegions) {
+  const pageMap = new Map(items.map((item, index) => [index + 1, { ...item, overlays: [] }]));
+
+  for (const region of layoutRegions || []) {
+    const target = pageMap.get(region.page);
+    if (!target || !region.bbox) {
+      continue;
+    }
+    const width = target.width || 1;
+    const height = target.height || 1;
+    target.overlays.push({
+      bbox: [
+        region.bbox[0] / width,
+        region.bbox[1] / height,
+        region.bbox[2] / width,
+        region.bbox[3] / height,
+      ],
+      label: region.label,
+      type: "layout",
+    });
+  }
+
+  for (const annotation of annotations || []) {
+    for (const match of annotation.matches || []) {
+      const target = pageMap.get(match.page);
+      if (!target || !match.bbox) {
+        continue;
+      }
+      const width = target.width || 1;
+      const height = target.height || 1;
+      target.overlays.push({
+        bbox: [
+          match.bbox[0] / width,
+          match.bbox[1] / height,
+          match.bbox[2] / width,
+          match.bbox[3] / height,
+        ],
+        label: annotation.path.split(".").slice(-1)[0],
+        type: "field",
+      });
+    }
+  }
+  return Array.from(pageMap.values());
+}
+
 function renderGallery(items) {
   galleryEl.innerHTML = "";
   if (!items.length) {
@@ -91,10 +158,14 @@ function renderGallery(items) {
       frame.title = item.name;
       figure.appendChild(frame);
     } else if (item.src) {
+      const stage = document.createElement("div");
+      stage.className = "preview-stage";
       const img = document.createElement("img");
       img.src = item.src;
       img.alt = item.name;
-      figure.appendChild(img);
+      stage.appendChild(img);
+      renderBoxes(stage, item.overlays);
+      figure.appendChild(stage);
     } else {
       const placeholder = document.createElement("div");
       placeholder.className = "pdf-card";
@@ -141,7 +212,7 @@ function renderLocalPreview(files) {
 
 function renderLightboxContent() {
   lightboxContentEl.innerHTML = "";
-  if (!lightboxSrc) {
+  if (!lightboxSrc || !lightboxItem) {
     return;
   }
 
@@ -160,12 +231,16 @@ function renderLightboxContent() {
 
   const stage = document.createElement("div");
   stage.className = "lightbox-stage";
+  const preview = document.createElement("div");
+  preview.className = "lightbox-preview";
   const img = document.createElement("img");
   img.className = "lightbox-image";
   img.src = lightboxSrc;
   img.alt = lightboxTitleEl.textContent;
   img.style.transform = `scale(${lightboxZoom})`;
-  stage.appendChild(img);
+  preview.appendChild(img);
+  renderBoxes(preview, lightboxItem.overlays);
+  stage.appendChild(preview);
   lightboxContentEl.appendChild(stage);
   zoomInBtn.disabled = false;
   zoomOutBtn.disabled = false;
@@ -177,6 +252,7 @@ function openLightbox(item) {
   if (!item.src) {
     return;
   }
+  lightboxItem = item;
   lightboxKind = item.kind || "image";
   lightboxSrc = item.src;
   lightboxZoom = 1;
@@ -194,6 +270,7 @@ function closeLightbox() {
   lightboxContentEl.innerHTML = "";
   lightboxSrc = "";
   lightboxKind = null;
+  lightboxItem = null;
 }
 
 function adjustZoom(delta) {
@@ -309,6 +386,8 @@ form.addEventListener("submit", async (event) => {
 
   try {
     const formData = new FormData(form);
+    formData.set("layout_engine", "doclayout_yolo");
+    formData.set("ocr_engine", "paddleocr");
     if (!singleFileInput.files.length) {
       formData.delete("file");
     }
@@ -328,12 +407,22 @@ form.addEventListener("submit", async (event) => {
     metaLineEl.textContent =
       `${data.meta.model_name} | ${data.meta.device} | quant: ${data.meta.quantization} | ${data.meta.elapsed_seconds}s`;
     if (data.gallery.length) {
-      renderGallery(data.gallery);
+      renderGallery(buildAnnotatedItems(data.gallery, data.bbox_annotations, data.layout_regions));
     }
 
     if (data.parsed_json) {
       const text = JSON.stringify(data.parsed_json, null, 2);
-      resultEl.textContent = text;
+      const notes = [];
+      if (data.meta.layout_error) {
+        notes.push(`layout error: ${data.meta.layout_error}`);
+      }
+      if (data.meta.ocr_error) {
+        notes.push(`ocr error: ${data.meta.ocr_error}`);
+      }
+      if (data.meta.bbox_annotation_count === 0 && data.meta.ocr_block_count > 0) {
+        notes.push("bbox annotations are empty, showing layout boxes only");
+      }
+      resultEl.textContent = notes.length ? `${notes.join("\n")}\n\n${text}` : text;
       setDownloadPayload(text);
     } else {
       const text = `${data.raw_response}\n\nJSON parse error: ${data.json_error}`;
@@ -365,6 +454,8 @@ batchForm.addEventListener("submit", async (event) => {
     formData.set("model_name", document.getElementById("batch_model_name").value);
     formData.set("quantization", document.getElementById("batch_quantization").value);
     formData.set("gpu", document.getElementById("batch_gpu").value);
+    formData.set("layout_engine", "doclayout_yolo");
+    formData.set("ocr_engine", "paddleocr");
     formData.set("max_tokens", document.getElementById("batch_max_tokens").value);
     formData.set("output_dir", document.getElementById("output_dir").value);
     for (const file of batchFileInput.files) {

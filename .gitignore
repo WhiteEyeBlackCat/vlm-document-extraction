@@ -1,0 +1,50 @@
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs and local runtime files
+*.log
+*.out
+*.pid
+
+# Editor / OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Local tooling
+.codex
+
+# Project-generated data artifacts
+data/0314/
+data/jpg/
+data/RATW25035512/
+data/RATW25035798/
+data/RATW25035814/
+data/RATW25035956/
+data/RATW25035958/
+data/Sunrisetek-1/
+data/Sunrisetek-2/
+data/zip/
+
+# Common model / output artifacts
+outputs/
+results/
+predictions/
+checkpoints/
