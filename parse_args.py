@@ -3,7 +3,7 @@ from pathlib import Path
 
 def parse_args():
     parser = ArgumentParser(
-        description="Run LLaMA Vision on your preprocessed local document images."
+        description="Run LLaMA Vision on a local PDF file or a folder of JPG images."
     )
     parser.add_argument(
         "--model",
@@ -13,10 +13,11 @@ def parse_args():
         help="Choice backbone VLM model. Only can enter llama, Qwen2B or Qwen8B"
     )
     parser.add_argument(
-        "--folder",
+        "--file",
+        dest="input_path",
         type=Path,
         required=True,
-        help="Folder that contains preprocessed JPGs such as page-1.jpg.",
+        help="Path to a local PDF file or a folder that contains JPG images such as page-1.jpg.",
     )
     parser.add_argument(
         "--max_tokens",

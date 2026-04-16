@@ -7,7 +7,7 @@ def main():
     model_id = resolve_model_id(args.model)
     runner = model_function(model_id)
     result = runner.run_inference(
-        args.folder,
+        args.input_path,
         args.max_tokens,
         args.seed,
         quantization=args.quantization,

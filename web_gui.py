@@ -1,5 +1,6 @@
 from html import escape
 from http.server import BaseHTTPRequestHandler, HTTPServer
+import base64
 from io import BytesIO
 from pathlib import Path
 import traceback
@@ -15,28 +16,19 @@ PORT = 8000
 QUANTIZATION_OPTIONS = ["none", "8bit", "4bit"]
 
 
-def list_images(folder: Path):
-    if not folder.exists():
-        raise FileNotFoundError(f"{folder} does not exist.")
-
-    image_paths = sorted(folder.glob(f"page-1.jpg"))
-    if not image_paths:
-        raise FileNotFoundError(f"No JPG files found in {folder}.")
-
-    return image_paths
-
-
 def render_page(
     model_name="Qwen2B",
-    folder="",
+    input_value="",
     max_tokens="300",
     seed="42",
     quantization="none",
     result="",
     error="",
     image_paths=None,
+    preview_images=None,
 ):
     image_paths = image_paths or []
+    preview_images = preview_images or []
 
     option_html = []
     for name in MODEL_ID_MAP:
@@ -49,13 +41,19 @@ def render_page(
         quantization_html.append(f'<option value="{name}"{selected}>{name}</option>')
 
     image_html = []
-    for image_path in image_paths:
-        encoded_path = quote(str(image_path))
+    for index, image_path in enumerate(image_paths):
+        if preview_images:
+            encoded_bytes = base64.b64encode(preview_images[index]).decode("ascii")
+            image_src = f"data:image/jpeg;base64,{encoded_bytes}"
+        else:
+            encoded_path = quote(str(image_path))
+            image_src = f"/image?path={encoded_path}"
+
         image_html.append(
             f"""
             <div class="image-card">
-              <div class="image-name">{escape(image_path.name)}</div>
-              <img src="/image?path={encoded_path}" alt="{escape(image_path.name)}" />
+              <div class="image-name">{escape(Path(str(image_path)).name)}</div>
+              <img src="{image_src}" alt="{escape(Path(str(image_path)).name)}" />
             </div>
             """
         )
@@ -239,8 +237,8 @@ def render_page(
         </select>
       </div>
       <div>
-        <label for="folder">Image Folder</label>
-        <input id="folder" name="folder" value="{escape(folder)}" placeholder="data/jpg/..." required />
+        <label for="input_path">PDF Or Image Folder</label>
+        <input id="input_path" name="input_path" value="{escape(input_value)}" placeholder="data/example.pdf or data/jpg/..." required />
       </div>
       <div>
         <label for="max_tokens">Max Tokens</label>
@@ -267,7 +265,7 @@ def render_page(
       <section class="panel">
         <h2>Input Document</h2>
         <div class="image-grid">
-          {''.join(image_html) if image_html else '<div class="empty">Submit a folder to preview document images here.</div>'}
+          {''.join(image_html) if image_html else '<div class="empty">Submit a PDF or image folder to preview document pages here.</div>'}
         </div>
       </section>
 
@@ -307,27 +305,28 @@ class ExtractionHandler(BaseHTTPRequestHandler):
         form = parse_qs(body)
 
         model_name = form.get("model", ["llama"])[0]
-        folder = form.get("folder", [""])[0].strip()
+        input_value = form.get("input_path", [""])[0].strip()
         max_tokens = form.get("max_tokens", ["300"])[0].strip()
         seed = form.get("seed", ["42"])[0].strip()
         quantization = form.get("quantization", ["none"])[0].strip()
 
         image_paths = []
+        preview_images = []
         result_text = ""
         error_text = ""
 
         try:
-            folder_path = Path(folder)
-            image_paths = list_images(folder_path)
             runner = model_function(resolve_model_id(model_name))
+            input_path = Path(input_value)
             result = runner.run_inference(
-                folder_path,
+                input_path,
                 int(max_tokens),
                 int(seed),
                 quantization=quantization,
             )
             result_text = result["response"]
             image_paths = result["image_paths"]
+            preview_images = result.get("preview_images") or []
         except Exception as exc:
             error_text = "".join(
                 traceback.format_exception(type(exc), exc, exc.__traceback__)
@@ -336,13 +335,14 @@ class ExtractionHandler(BaseHTTPRequestHandler):
         self._send_html(
             render_page(
                 model_name=model_name,
-                folder=folder,
+                input_value=input_value,
                 max_tokens=max_tokens,
                 seed=seed,
                 quantization=quantization,
                 result=result_text,
                 error=error_text,
                 image_paths=image_paths,
+                preview_images=preview_images,
             )
         )
 

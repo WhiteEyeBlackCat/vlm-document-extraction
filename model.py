@@ -1,5 +1,7 @@
 from pathlib import Path
 import importlib.util
+from io import BytesIO
+import subprocess
 
 import torch
 from PIL import Image
@@ -90,7 +92,64 @@ class model_function:
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
 
-    def load_images(self, folder: Path):
+    def _get_pdf_page_count(self, pdf_path: Path):
+        if not pdf_path.exists() or not pdf_path.is_file():
+            raise FileNotFoundError(f"{pdf_path} does not exist.")
+
+        result = subprocess.run(
+            ["pdfinfo", str(pdf_path)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        for line in result.stdout.splitlines():
+            if line.startswith("Pages:"):
+                return int(line.split(":", 1)[1].strip())
+
+        raise ValueError(f"Could not determine page count for {pdf_path}")
+
+    def _load_pdf_images(self, pdf_path: Path):
+        page_count = self._get_pdf_page_count(pdf_path)
+        image_labels = []
+        images = []
+        preview_images = []
+
+        for page_index in range(1, page_count + 1):
+            result = subprocess.run(
+                [
+                    "pdftoppm",
+                    "-f",
+                    str(page_index),
+                    "-l",
+                    str(page_index),
+                    str(pdf_path),
+                ],
+                check=True,
+                capture_output=True,
+            )
+
+            if not result.stdout:
+                raise ValueError(
+                    f"pdftoppm returned empty output for {pdf_path} page {page_index}"
+                )
+
+            image_labels.append(f"{pdf_path.name}#page-{page_index}")
+            with Image.open(BytesIO(result.stdout)) as image:
+                rgb_image = image.convert("RGB")
+                images.append(rgb_image.copy())
+
+                preview_buffer = BytesIO()
+                rgb_image.save(preview_buffer, format="JPEG", quality=90)
+                preview_images.append(preview_buffer.getvalue())
+
+        return image_labels, images, preview_images
+
+    def load_images(self, input_path: Path):
+        if input_path.suffix.lower() == ".pdf":
+            return self._load_pdf_images(input_path)
+
+        folder = input_path
         preferred_order = [
             "page-1.jpg",
         ]
@@ -103,7 +162,7 @@ class model_function:
             raise FileNotFoundError(f"No JPG files found in {folder}")
 
         images = [Image.open(path).convert("RGB") for path in image_paths]
-        return image_paths, images
+        return image_paths, images, None
 
     def build_messages(self, image_count: int):
         content = [{"type": "image"} for _ in range(image_count)]
@@ -112,13 +171,13 @@ class model_function:
 
     def run_inference(
         self,
-        folder: Path,
+        input_path: Path,
         max_tokens: int,
         seed: int,
         quantization: str = "none",
     ):
         self.set_seed(seed)
-        image_paths, images = self.load_images(folder)
+        image_paths, images, preview_images = self.load_images(input_path)
 
         model, processor = self.build_model(quantization=quantization)
         messages = self.build_messages(len(images))
@@ -150,6 +209,7 @@ class model_function:
 
         return {
             "image_paths": image_paths,
+            "preview_images": preview_images,
             "response": response,
             "device": str(model.device),
             "model_id": self.model_id,
