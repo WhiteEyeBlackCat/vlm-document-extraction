@@ -20,7 +20,7 @@ from services.layout import (
     run_layout,
 )
 from services.ocr import OCR_ENGINE_CHOICES, detect_available_engines, ocr_engine_ready, run_ocr
-from services.parse import build_layout_view
+from services.parse import build_document_context, build_layout_view, normalize_ocr_blocks
 
 
 MODEL_CHOICES = list(MODEL_ID_MAP.keys())
@@ -123,10 +123,42 @@ def run_extraction_from_path(
     runner = model_function(resolve_model_id(model_name))
     image_paths, images, preview_images = runner.load_images(input_path)
 
+    layout_regions: list[dict[str, Any]] = []
+    layout_error = None
+    if layout_engine != "none":
+        if not layout_engine_ready(layout_engine):
+            layout_error = layout_engine_issue(layout_engine) or (
+                f"Layout engine '{layout_engine}' is not available."
+            )
+            layout_regions = run_layout(images, engine="none")
+        else:
+            try:
+                layout_regions = run_layout(images, engine=layout_engine)
+            except Exception as exc:
+                layout_error = str(exc)
+                layout_regions = run_layout(images, engine="none")
+    else:
+        layout_regions = run_layout(images, engine="none")
+
+    ocr_blocks: list[dict[str, Any]] = []
+    ocr_error = None
+    if ocr_engine != "none":
+        if not ocr_engine_ready(ocr_engine):
+            ocr_error = f"OCR engine '{ocr_engine}' is not installed."
+        else:
+            try:
+                ocr_blocks = run_ocr(images, engine=ocr_engine, regions=layout_regions)
+            except Exception as exc:
+                ocr_error = str(exc)
+
+    ocr_blocks = normalize_ocr_blocks(ocr_blocks)
+    parsed_layout = build_layout_view(layout_regions, ocr_blocks)
+    document_context = build_document_context(parsed_layout)
+
     model_id = resolve_model_id(model_name)
     cache_miss = (model_id, quantization, gpu) not in _model_cache
     model, processor = get_model(model_id, quantization, gpu)
-    messages = runner.build_messages(len(images))
+    messages = runner.build_messages(len(images), document_context=document_context)
     input_text = processor.apply_chat_template(messages, add_generation_prompt=True)
 
     inputs = processor(images=images, text=input_text, return_tensors="pt")
@@ -152,33 +184,6 @@ def run_extraction_from_path(
     except json.JSONDecodeError as exc:
         json_error = str(exc)
 
-    layout_regions: list[dict[str, Any]] = []
-    layout_error = None
-    if layout_engine != "none":
-        if not layout_engine_ready(layout_engine):
-            layout_error = layout_engine_issue(layout_engine) or (
-                f"Layout engine '{layout_engine}' is not available."
-            )
-        else:
-            try:
-                layout_regions = run_layout(images, engine=layout_engine)
-            except Exception as exc:
-                layout_error = str(exc)
-    else:
-        layout_regions = run_layout(images, engine="none")
-
-    ocr_blocks: list[dict[str, Any]] = []
-    ocr_error = None
-    if ocr_engine != "none":
-        if not ocr_engine_ready(ocr_engine):
-            ocr_error = f"OCR engine '{ocr_engine}' is not installed."
-        else:
-            try:
-                ocr_blocks = run_ocr(images, engine=ocr_engine)
-            except Exception as exc:
-                ocr_error = str(exc)
-
-    parsed_layout = build_layout_view(layout_regions, ocr_blocks)
     bbox_annotations = build_bbox_annotations(parsed_json, ocr_blocks)
 
     return {
@@ -200,6 +205,7 @@ def run_extraction_from_path(
         "layout_regions": layout_regions,
         "layout_error": layout_error,
         "parsed_layout": parsed_layout,
+        "document_context": document_context,
         "ocr_blocks": ocr_blocks,
         "ocr_error": ocr_error,
         "bbox_annotations": bbox_annotations,

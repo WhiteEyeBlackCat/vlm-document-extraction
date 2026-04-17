@@ -10,6 +10,7 @@ PADDLEX_HOME="${PADDLEX_HOME:-/tmp/paddlex}"
 PADDLE_HOME="${PADDLE_HOME:-/tmp/paddle}"
 MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/matplotlib}"
 YOLO_CONFIG_DIR="${YOLO_CONFIG_DIR:-/tmp/ultralytics}"
+PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK="${PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK:-True}"
 
 if [[ -z "${DOCLAYOUT_YOLO_MODEL:-}" && -f "$DEFAULT_LAYOUT_MODEL" ]]; then
   export DOCLAYOUT_YOLO_MODEL="$DEFAULT_LAYOUT_MODEL"
@@ -24,6 +25,7 @@ if command -v conda >/dev/null 2>&1 && conda env list | awk '{print $1}' | grep 
     PADDLE_HOME="$PADDLE_HOME" \
     MPLCONFIGDIR="$MPLCONFIGDIR" \
     YOLO_CONFIG_DIR="$YOLO_CONFIG_DIR" \
+    PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK="$PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK" \
     python -m uvicorn web.app:app --host "$HOST" --port "$PORT"
 else
   exec env \
@@ -32,5 +34,6 @@ else
     PADDLE_HOME="$PADDLE_HOME" \
     MPLCONFIGDIR="$MPLCONFIGDIR" \
     YOLO_CONFIG_DIR="$YOLO_CONFIG_DIR" \
+    PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK="$PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK" \
     python -m uvicorn web.app:app --host "$HOST" --port "$PORT"
 fi

@@ -12,7 +12,7 @@ from transformers import (
     Qwen3VLForConditionalGeneration,
 )
 
-from prompt import Prompt
+from prompt import build_extraction_prompt
 
 
 MODEL_ID_MAP = {
@@ -169,9 +169,9 @@ class model_function:
         images = [self._resize_for_model(Image.open(path).convert("RGB")) for path in image_paths]
         return image_paths, images, None
 
-    def build_messages(self, image_count: int):
+    def build_messages(self, image_count: int, document_context: str | None = None):
         content = [{"type": "image"} for _ in range(image_count)]
-        content.append({"type": "text", "text": Prompt})
+        content.append({"type": "text", "text": build_extraction_prompt(document_context)})
         return [{"role": "user", "content": content}]
 
     def run_inference(

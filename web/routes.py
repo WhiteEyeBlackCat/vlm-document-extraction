@@ -113,6 +113,7 @@ async def extract_document(
         "json_error": result["json_error"],
         "layout_regions": result["layout_regions"],
         "parsed_layout": result["parsed_layout"],
+        "document_context": result["document_context"],
         "ocr_blocks": result["ocr_blocks"],
         "bbox_annotations": result["bbox_annotations"],
     }
