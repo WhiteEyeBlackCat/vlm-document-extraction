@@ -7,6 +7,8 @@ import tempfile
 import time
 from typing import Any
 
+import re
+
 import torch
 from PIL import Image
 
@@ -34,12 +36,27 @@ AVAILABLE_LAYOUT_ENGINES = [
 _model_cache: dict[tuple[str, str, str], tuple[Any, Any]] = {}
 
 
+def _extract_json(text: str) -> Any:
+    """Parse JSON from model output, stripping markdown code fences if present."""
+    text = text.strip()
+    # Strip ```json ... ``` or ``` ... ``` wrappers
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    text = text.strip()
+    return json.loads(text)
+
+
 def get_model(model_id: str, quantization: str, gpu: str = "auto"):
     key = (model_id, quantization, gpu)
     if key not in _model_cache:
+        # Explicitly free old model from GPU memory before loading new one
+        if _model_cache:
+            old_model, old_processor = next(iter(_model_cache.values()))
+            del old_model, old_processor
+            _model_cache.clear()
+            torch.cuda.empty_cache()
         runner = model_function(model_id)
         model, processor = runner.build_model(quantization=quantization, gpu=gpu)
-        _model_cache.clear()
         _model_cache[key] = (model, processor)
     return _model_cache[key]
 
@@ -159,7 +176,7 @@ def run_extraction_from_path(
     cache_miss = (model_id, quantization, gpu) not in _model_cache
     model, processor = get_model(model_id, quantization, gpu)
     messages = runner.build_messages(len(images), document_context=document_context)
-    input_text = processor.apply_chat_template(messages, add_generation_prompt=True)
+    input_text = processor.apply_chat_template(messages, add_generation_prompt=True, enable_thinking=False)
 
     inputs = processor(images=images, text=input_text, return_tensors="pt")
     inputs = {
@@ -172,6 +189,7 @@ def run_extraction_from_path(
         max_new_tokens=int(max_tokens),
         do_sample=False,
         num_beams=1,
+            repetition_penalty=1.15,
     )
     prompt_length = inputs["input_ids"].shape[-1]
     response = processor.decode(output[0][prompt_length:], skip_special_tokens=True).strip()
@@ -180,7 +198,7 @@ def run_extraction_from_path(
     parsed_json = None
     json_error = None
     try:
-        parsed_json = json.loads(response)
+        parsed_json = _extract_json(response)
     except json.JSONDecodeError as exc:
         json_error = str(exc)
 
@@ -268,7 +286,7 @@ def run_batch_from_paths(
         try:
             _, images, _ = runner.load_images(path)
             messages = runner.build_messages(len(images))
-            input_text = processor.apply_chat_template(messages, add_generation_prompt=True)
+            input_text = processor.apply_chat_template(messages, add_generation_prompt=True, enable_thinking=False)
             inputs = processor(images=images, text=input_text, return_tensors="pt")
             inputs = {
                 key: value.contiguous().to(model.device) if torch.is_tensor(value) else value
@@ -279,6 +297,7 @@ def run_batch_from_paths(
                 max_new_tokens=int(max_tokens),
                 do_sample=False,
                 num_beams=1,
+            repetition_penalty=1.15,
             )
             prompt_length = inputs["input_ids"].shape[-1]
             response = processor.decode(output[0][prompt_length:], skip_special_tokens=True).strip()
@@ -286,7 +305,7 @@ def run_batch_from_paths(
             out_path = out_dir / f"{path.stem}.json"
             json_valid = True
             try:
-                parsed = json.loads(response.strip())
+                parsed = _extract_json(response)
                 out_path.write_text(json.dumps(parsed, ensure_ascii=False, indent=2), encoding="utf-8")
                 message = f"✅ {path.name} → {out_path.name}"
             except json.JSONDecodeError as exc:

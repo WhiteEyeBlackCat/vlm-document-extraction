@@ -1,142 +1,470 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Document Extraction Web UI</title>
-    <link rel="stylesheet" href="/static/styles.css" />
-  </head>
-  <body>
-    <main class="shell">
-      <section class="hero">
-        <div>
-          <p class="eyebrow">FastAPI Prototype</p>
-          <h1>Document Extraction</h1>
-          <p class="subcopy">
-            保留 Python 推論核心，先把 Gradio 換成更輕的 API + 前端頁面。
-          </p>
-        </div>
-        <div class="hero-card">
-          <div id="timer" class="timer">00:00.0</div>
-          <div id="status" class="status">待命中</div>
-        </div>
-      </section>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Industrial OCR — Admin Console</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<div class="app-shell">
 
-      <section class="tabs panel">
-        <div class="tab-buttons">
-          <button class="tab-btn active" type="button" data-tab="single">單檔萃取</button>
-          <button class="tab-btn" type="button" data-tab="batch">批次處理</button>
-        </div>
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <span class="brand-name">Industrial OCR</span>
+      <span class="brand-sub">Admin Console</span>
+    </div>
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-nav="dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </button>
+      <button class="nav-item" data-nav="ingest">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        Projects
+      </button>
+      <button class="nav-item" data-nav="batch">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Documents
+      </button>
+      <button class="nav-item" data-nav="workspace">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Extraction
+      </button>
+      <button class="nav-item" data-nav="apikeys">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+        API Keys
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="nav-item" data-nav="dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+        Settings
+      </button>
+      <button class="nav-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        Support
+      </button>
+    </div>
+    <button class="sidebar-new-project" data-nav="ingest">+ New Project</button>
+  </aside>
 
-        <div class="tab-panel active" data-panel="single">
-          <form id="extract-form" class="controls">
-            <label>
-              <span>Model</span>
-              <select id="model_name" name="model_name"></select>
-            </label>
-            <label>
-              <span>Quantization</span>
-              <select id="quantization" name="quantization"></select>
-            </label>
-            <label>
-              <span>GPU</span>
-              <select id="gpu" name="gpu"></select>
-            </label>
-            <label>
-              <span>Max Tokens</span>
-              <input id="max_tokens" name="max_tokens" type="number" min="1" step="1" />
-            </label>
-            <label class="wide">
-              <span>PDF / 圖片</span>
-              <input id="file" name="file" type="file" accept=".pdf,.jpg,.jpeg,.png" />
-            </label>
-            <label class="wide">
-              <span>圖片資料夾路徑</span>
-              <input
-                id="folder_path"
-                name="folder_path"
-                type="text"
-                placeholder="例如 data/jpg/"
-              />
-            </label>
-            <button id="submit-btn" type="submit">Run Extraction</button>
-          </form>
-        </div>
+  <!-- ── Main area ── -->
+  <div class="main-area">
 
-        <div class="tab-panel" data-panel="batch">
-          <form id="batch-form" class="controls">
-            <label>
-              <span>Model</span>
-              <select id="batch_model_name" name="model_name"></select>
-            </label>
-            <label>
-              <span>Quantization</span>
-              <select id="batch_quantization" name="quantization"></select>
-            </label>
-            <label>
-              <span>GPU</span>
-              <select id="batch_gpu" name="gpu"></select>
-            </label>
-            <label>
-              <span>Max Tokens</span>
-              <input id="batch_max_tokens" name="max_tokens" type="number" min="1" step="1" />
-            </label>
-            <label class="wide">
-              <span>批次 PDF</span>
-              <input id="batch_files" name="files" type="file" accept=".pdf" multiple />
-            </label>
-            <label class="wide">
-              <span>輸出目錄</span>
-              <input id="output_dir" name="output_dir" type="text" value="./output" />
-            </label>
-            <button id="batch-submit-btn" type="submit">Run Batch</button>
-          </form>
-        </div>
-      </section>
+    <!-- ── Header ── -->
+    <header class="app-header">
+      <div class="header-brand">OCR Architect</div>
+      <div class="header-search">
+        <input type="search" id="header-search" placeholder="Search projects..." />
+      </div>
+      <nav class="header-nav">
+        <button class="header-nav-link" data-nav="dashboard">Recent</button>
+        <button class="header-nav-link active" data-nav="batch">Batch Jobs</button>
+      </nav>
+      <div class="header-spacer"></div>
+      <div class="header-actions">
+        <button class="btn btn-secondary" id="header-export-btn">Export</button>
+        <button class="btn btn-primary" data-nav="ingest">&#8679; Upload</button>
+        <button class="icon-btn" title="Notifications">&#9993;</button>
+        <button class="icon-btn" title="History">&#8635;</button>
+        <div class="avatar">A</div>
+      </div>
+    </header>
 
-      <section class="grid">
-        <article class="panel">
-          <div class="section-head">
-            <h2>Input Preview</h2>
-            <p id="meta-line">尚未執行</p>
-          </div>
-          <div id="gallery" class="gallery empty">尚無預覽</div>
-        </article>
+    <!-- ── Content ── -->
+    <main class="content">
 
-        <article class="panel">
-          <div class="section-head">
-            <h2>Extraction Result</h2>
-            <button id="download-btn" type="button" disabled>Download JSON</button>
-          </div>
-          <pre id="result" class="result">尚未執行</pre>
-        </article>
-      </section>
-
-      <section class="panel">
-        <div class="section-head">
-          <h2>Batch Result</h2>
-          <p id="batch-meta-line">尚未執行</p>
-        </div>
-        <pre id="batch-result" class="result compact">尚未執行</pre>
-      </section>
-    </main>
-
-    <div id="lightbox" class="lightbox hidden" aria-hidden="true">
-      <div class="lightbox-backdrop" data-close-lightbox="true"></div>
-      <div class="lightbox-panel">
-        <div class="lightbox-toolbar">
-          <div id="lightbox-title" class="lightbox-title">Preview</div>
-          <div class="lightbox-actions">
-            <button id="zoom-out-btn" type="button">-</button>
-            <button id="zoom-reset-btn" type="button">100%</button>
-            <button id="zoom-in-btn" type="button">+</button>
-            <button id="lightbox-close-btn" type="button">Close</button>
+      <!-- ════════════════════════════
+           PAGE: DASHBOARD
+      ════════════════════════════ -->
+      <section class="page active" id="page-dashboard">
+        <div class="page-header">
+          <div>
+            <div class="page-eyebrow">Architecture Overview</div>
+            <h1 class="page-title">System Dashboard</h1>
           </div>
         </div>
-        <div id="lightbox-content" class="lightbox-content"></div>
+
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-label">Documents Processed</div>
+            <div class="metric-value" id="dash-docs-count">0</div>
+            <div class="metric-badge green" id="dash-docs-delta">&#8593; — from last session</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Success Rate</div>
+            <div class="metric-value" id="dash-success-rate">—</div>
+            <div class="metric-sub">Industry standard benchmark</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Average Confidence</div>
+            <div class="metric-value" id="dash-avg-conf">—</div>
+            <div class="metric-sub">High fidelity verification active</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Active Jobs</div>
+            <div class="metric-value" id="dash-active-jobs">0</div>
+            <div class="metric-badge blue" id="dash-active-label">Real-time extraction active</div>
+          </div>
+        </div>
+
+        <div class="dash-two-col">
+          <div>
+            <div class="card">
+              <div class="card-header">
+                <span class="card-title">Active Projects</span>
+                <button class="card-more" data-nav="ingest">View all</button>
+              </div>
+              <div id="dash-projects-list">
+                <div class="project-item add-new" data-nav="ingest" style="cursor:pointer">
+                  <div style="font-size:22px">&#43;</div>
+                  <div style="font-size:13px;font-weight:600">Create New Project</div>
+                  <div style="font-size:12px">Define rules and upload a sample document</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:14px">
+            <div class="card">
+              <div class="card-header">
+                <span class="card-title">Activity Log</span>
+                <button class="card-more">&#8943;</button>
+              </div>
+              <div id="dash-activity-log">
+                <div class="activity-item">
+                  <div class="activity-time">Waiting for activity...</div>
+                  <div class="activity-row">
+                    <div class="activity-icon">&#9432;</div>
+                    <div>
+                      <div class="activity-content-title">No activity yet</div>
+                      <div class="activity-content-desc">Upload documents to get started</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <button class="activity-view-all" data-nav="batch">Full Activity History</button>
+            </div>
+
+            <div class="card">
+              <div class="node-status">
+                <div class="node-status-title">Node Status: Cluster-1</div>
+                <div class="node-stat"><span class="node-stat-label">CPU Usage</span><span class="node-stat-value" id="node-cpu">—</span></div>
+                <div class="node-stat"><span class="node-stat-label">Memory</span><span class="node-stat-value" id="node-mem">—</span></div>
+                <div class="node-stat"><span class="node-stat-label">Latency</span><span class="node-stat-value" id="node-lat">—</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ════════════════════════════
+           PAGE: INGEST DOCUMENTS
+      ════════════════════════════ -->
+      <section class="page" id="page-ingest">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">Ingest Documents</h1>
+            <p class="page-subtitle">Initialize a new extraction batch by uploading technical schematics or documentation files.</p>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-secondary" id="ingest-export-btn">Export</button>
+            <button class="btn btn-primary" id="ingest-upload-trigger">&#8679; Upload</button>
+          </div>
+        </div>
+
+        <input type="file" id="hidden-file" accept=".pdf,.jpg,.jpeg,.png,.tiff" multiple />
+
+        <div class="ingest-layout">
+          <!-- Left: drop zone + staged files -->
+          <div>
+            <div class="drop-zone" id="drop-zone">
+              <div class="drop-zone-icon">&#128196;</div>
+              <div class="drop-zone-title">Drag and drop assets</div>
+              <div class="drop-zone-sub">Support for PDF, JPG, PNG and TIFF up to 50MB</div>
+              <button class="btn-browse" id="browse-btn">Browse Files</button>
+            </div>
+            <div class="staged-files" id="staged-files-list"></div>
+          </div>
+
+          <!-- Right: config panel -->
+          <div class="ingest-panel">
+            <div class="ingest-section">
+              <div class="ingest-section-lbl">Batch Identity</div>
+              <div class="form-group">
+                <label class="form-label">Batch Name</label>
+                <input type="text" class="form-input" id="ingest-batch-name" placeholder="e.g. Q3_LOGISTICS_INFLOW_001" />
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Language Selection</label>
+                  <select class="form-select" id="ingest-language">
+                    <option value="auto">Auto Detect</option>
+                    <option value="en">English (US)</option>
+                    <option value="zh-tw">Chinese (TW)</option>
+                    <option value="zh-cn">Chinese (CN)</option>
+                    <option value="ja">Japanese</option>
+                    <option value="ko">Korean</option>
+                    <option value="de">German</option>
+                    <option value="fr">French</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Encoding</label>
+                  <select class="form-select" id="ingest-encoding">
+                    <option>UTF-8</option>
+                    <option>UTF-16</option>
+                    <option>ASCII</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="ingest-section">
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">OCR Model</label>
+                  <select class="form-select" id="ingest-model"></select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Quantization</label>
+                  <select class="form-select" id="ingest-quant"></select>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Compute Resource</label>
+                  <select class="form-select" id="ingest-gpu"></select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Max Tokens</label>
+                  <input type="number" class="form-input" id="ingest-max-tokens" value="2048" min="1" />
+                </div>
+              </div>
+            </div>
+
+            <div class="ingest-section">
+              <div class="ingest-section-lbl">Extraction Mode</div>
+              <div class="ext-modes">
+                <div class="ext-mode selected" data-mode="structured">
+                  <div class="ext-mode-ico">&#9638;</div>
+                  <div>
+                    <div class="ext-mode-name">Structured</div>
+                    <div class="ext-mode-desc">Best for standardized forms and invoices.</div>
+                  </div>
+                  <div class="ext-mode-radio"></div>
+                </div>
+                <div class="ext-mode" data-mode="semi">
+                  <div class="ext-mode-ico">&#9636;</div>
+                  <div>
+                    <div class="ext-mode-name">Semi-structured</div>
+                    <div class="ext-mode-desc">For variants of similar document types.</div>
+                  </div>
+                  <div class="ext-mode-radio"></div>
+                </div>
+                <div class="ext-mode" data-mode="raw">
+                  <div class="ext-mode-ico">&#9639;</div>
+                  <div>
+                    <div class="ext-mode-name">Raw</div>
+                    <div class="ext-mode-desc">Full text OCR with minimal logical mapping.</div>
+                  </div>
+                  <div class="ext-mode-radio"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="ingest-section">
+              <div class="throughput-card">
+                <div class="throughput-ico">&#9881;</div>
+                <div>
+                  <div class="throughput-lbl">Estimated Throughput</div>
+                  <div class="throughput-val" id="throughput-val">— pages/min</div>
+                  <div class="throughput-sub">System architecture is optimized for high-density technical parsing based on your current configuration.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sticky bottom bar -->
+        <div class="staged-bar" id="staged-bar">
+          <div class="staged-count">
+            <div class="staged-dot"></div>
+            <span id="staged-count-txt">0 files staged</span>
+          </div>
+          <div class="staged-bar-r">
+            <button class="staged-bar-clear" id="clear-staged-btn">Clear All</button>
+            <button class="btn btn-primary" id="process-batch-btn" disabled>Process Batch &#8250;</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ════════════════════════════
+           PAGE: BATCH JOBS
+      ════════════════════════════ -->
+      <section class="page" id="page-batch">
+        <div class="batch-header-row">
+          <div>
+            <h1 class="page-title">Batch Processing Queue</h1>
+            <div class="batch-meta">
+              <div class="batch-stat"><div class="batch-dot dot-green"></div><span class="batch-stat-lbl">Active: <strong id="batch-active-count">0</strong></span></div>
+              <div class="batch-stat"><div class="batch-dot dot-red"></div><span class="batch-stat-lbl">Failed: <strong id="batch-failed-count">0</strong></span></div>
+              <span class="batch-id-txt" id="batch-current-id">No batch loaded</span>
+            </div>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-secondary btn-outline-danger" id="retry-failed-btn">&#8635; Retry Failed Jobs</button>
+            <button class="btn btn-primary" id="download-all-btn">&#8659; Download All Results</button>
+          </div>
+        </div>
+
+        <div class="efficiency-row">
+          <div class="eff-card">
+            <div class="eff-label">Total Efficiency</div>
+            <div>
+              <span class="eff-value" id="batch-efficiency">—</span>
+              <span class="eff-delta" id="batch-efficiency-delta"></span>
+            </div>
+          </div>
+          <div class="eff-card">
+            <div class="eff-label">Queue Capacity</div>
+            <div class="capacity-bar-wrap"><div class="capacity-bar-fill" id="cap-bar" style="width:0%"></div></div>
+            <div class="capacity-nums">
+              <div><div class="cap-num" id="cap-processed">0</div><div class="cap-lbl">Processed</div></div>
+              <div><div class="cap-num" id="cap-remaining">0</div><div class="cap-lbl">Remaining</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width:32px"><input type="checkbox" id="select-all-cb" /></th>
+                <th>File Identity</th>
+                <th>Process State</th>
+                <th>Complexity</th>
+                <th>Payload</th>
+                <th>Temporal Marker</th>
+                <th>Context</th>
+              </tr>
+            </thead>
+            <tbody id="jobs-tbody">
+              <tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted)">No jobs yet — upload documents to get started</td></tr>
+            </tbody>
+          </table>
+          <div class="table-pagination">
+            <span id="jobs-pagination-info">Displaying 0 entities</span>
+            <div class="page-btns" id="jobs-page-btns"></div>
+          </div>
+        </div>
+
+        <div class="orch-logs">
+          <div class="orch-logs-head">Real-Time Orchestration Logs</div>
+          <div class="orch-logs-body" id="orch-logs-body">
+            <div class="log-entry"><span class="log-t">[--:--:--]</span><span class="log-info">INFO:</span><span class="log-msg">System ready. Awaiting batch submission.</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ════════════════════════════
+           PAGE: WORKSPACE
+      ════════════════════════════ -->
+      <section class="page" id="page-workspace">
+        <div class="workspace-breadcrumb">
+          <span class="bc-link" data-nav="ingest">Projects</span>
+          <span class="bc-sep">&#8250;</span>
+          <span class="bc-link" id="ws-project-crumb" data-nav="batch">Batch</span>
+          <span class="bc-sep">&#8250;</span>
+          <span id="ws-file-crumb">—</span>
+        </div>
+
+        <div class="workspace-header">
+          <div class="workspace-title-row">
+            <h1 class="workspace-title" id="ws-title">Workspace</h1>
+            <span class="badge badge-completed" id="ws-status-badge">Extraction Complete</span>
+          </div>
+          <div class="page-header-actions">
+            <button class="btn btn-secondary" id="ws-rerun-btn">&#8635; Re-Run OCR</button>
+            <button class="btn btn-secondary" id="ws-export-csv-btn">&#8659; Export to CSV</button>
+            <button class="btn btn-primary" data-nav="ingest">&#8679; Upload</button>
+          </div>
+        </div>
+
+        <div class="workspace-layout">
+          <!-- Document preview -->
+          <div class="workspace-panel">
+            <div class="ws-panel-head">
+              <span class="ws-panel-lbl">Document Preview</span>
+              <div class="ws-preview-controls">
+                <button class="preview-ctrl" id="ws-zoom-out">&#8722;</button>
+                <button class="preview-ctrl" id="ws-zoom-reset">100%</button>
+                <button class="preview-ctrl" id="ws-zoom-in">&#43;</button>
+                <button class="preview-ctrl" id="ws-fullscreen">&#9974;</button>
+              </div>
+            </div>
+            <div class="preview-body" id="ws-preview-body">
+              <div class="preview-placeholder">
+                <div class="preview-placeholder-ico">&#128196;</div>
+                <div>No document loaded</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- JSON viewer -->
+          <div class="workspace-panel json-panel">
+            <div class="ws-panel-head">
+              <span class="ws-panel-lbl">Extracted Structured Data</span>
+              <button class="btn btn-secondary" id="ws-copy-json-btn" style="padding:4px 10px;font-size:12px">&#128203; Copy JSON</button>
+            </div>
+            <div class="json-body" id="ws-json-body">
+              <pre id="ws-json-pre" style="color:#6b7280;font-style:italic">Run an extraction to see results here.</pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="ws-metrics">
+          <div class="ws-metric">
+            <div class="ws-metric-lbl">Field Accuracy</div>
+            <div class="ws-metric-val" id="ws-accuracy">—</div>
+            <div class="ws-metric-ico">&#10003;</div>
+          </div>
+          <div class="ws-metric">
+            <div class="ws-metric-lbl">Text Confidence</div>
+            <div class="ws-metric-val" id="ws-confidence">—</div>
+            <div class="ws-metric-ico">&#8679;</div>
+          </div>
+          <div class="ws-metric">
+            <div class="ws-metric-lbl">Extraction Time</div>
+            <div class="ws-metric-val" id="ws-time">—</div>
+            <div class="ws-metric-ico">&#9201;</div>
+          </div>
+        </div>
+      </section>
+
+    </main><!-- .content -->
+  </div><!-- .main-area -->
+</div><!-- .app-shell -->
+
+<!-- ── Lightbox ── -->
+<div id="lightbox" class="lightbox hidden" aria-hidden="true">
+  <div class="lightbox-backdrop" id="lightbox-backdrop"></div>
+  <div class="lightbox-panel">
+    <div class="lightbox-toolbar">
+      <div class="lightbox-title" id="lightbox-title">Preview</div>
+      <div class="lightbox-actions">
+        <button class="btn btn-secondary" id="zoom-out-btn" style="padding:4px 10px">&#8722;</button>
+        <button class="btn btn-secondary" id="zoom-reset-btn" style="padding:4px 10px;min-width:48px">100%</button>
+        <button class="btn btn-secondary" id="zoom-in-btn" style="padding:4px 10px">&#43;</button>
+        <button class="btn btn-primary" id="lightbox-close-btn">Close</button>
       </div>
     </div>
+    <div class="lightbox-content" id="lightbox-content"></div>
+  </div>
+</div>
 
-    <script src="/static/app.js"></script>
-  </body>
-  </html>
+<script src="/static/app.js"></script>
+</body>
+</html>

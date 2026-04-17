@@ -4,7 +4,7 @@ from io import BytesIO
 import subprocess
 
 import torch
-from PIL import Image
+from PIL import Image, ImageOps
 from transformers import (
     AutoProcessor,
     BitsAndBytesConfig,
@@ -154,19 +154,24 @@ class model_function:
             images = [self._resize_for_model(img) for img in images]
             return image_labels, images, preview_images
 
-        folder = input_path
-        preferred_order = [
-            "page-1.jpg",
-        ]
+        # Direct image file (.jpg / .jpeg / .png / .tiff / .tif / .webp)
+        IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".webp"}
+        if input_path.suffix.lower() in IMAGE_EXTS and input_path.is_file():
+            img = self._resize_for_model(ImageOps.exif_transpose(Image.open(input_path)).convert("RGB"))
+            return [input_path], [img], None
 
+        # Legacy: folder containing jpg files
+        folder = input_path
+        preferred_order = ["page-1.jpg"]
         image_paths = [folder / name for name in preferred_order if (folder / name).exists()]
         if not image_paths:
             image_paths = sorted(folder.glob("*.jpg"))
-
         if not image_paths:
-            raise FileNotFoundError(f"No JPG files found in {folder}")
+            image_paths = sorted(p for ext in IMAGE_EXTS for p in folder.glob(f"*{ext}"))
+        if not image_paths:
+            raise FileNotFoundError(f"No image files found in {folder}")
 
-        images = [self._resize_for_model(Image.open(path).convert("RGB")) for path in image_paths]
+        images = [self._resize_for_model(ImageOps.exif_transpose(Image.open(path)).convert("RGB")) for path in image_paths]
         return image_paths, images, None
 
     def build_messages(self, image_count: int, document_context: str | None = None):
@@ -190,6 +195,7 @@ class model_function:
         input_text = processor.apply_chat_template(
             messages,
             add_generation_prompt=True,
+            enable_thinking=False,
         )
 
         inputs = processor(
@@ -207,6 +213,7 @@ class model_function:
             max_new_tokens=max_tokens,
             do_sample=False,
             num_beams=1,
+            repetition_penalty=1.15,
         )
 
         prompt_length = inputs["input_ids"].shape[-1]

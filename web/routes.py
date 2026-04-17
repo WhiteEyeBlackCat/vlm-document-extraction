@@ -34,7 +34,7 @@ def get_options():
             "model": "Qwen2B",
             "quantization": "none",
             "gpu": "auto",
-            "max_tokens": 300,
+            "max_tokens": 2048,
             "ocr_engine": "paddleocr",
             "layout_engine": "doclayout_yolo",
         },
@@ -48,7 +48,7 @@ def get_options():
 @router.post("/api/extract")
 async def extract_document(
     model_name: str = Form(...),
-    max_tokens: int = Form(300),
+    max_tokens: int = Form(2048),
     quantization: str = Form("none"),
     gpu: str = Form("auto"),
     ocr_engine: str = Form("paddleocr"),
@@ -137,7 +137,7 @@ def preview_document(path: str):
 @router.post("/api/batch")
 async def batch_extract(
     model_name: str = Form(...),
-    max_tokens: int = Form(300),
+    max_tokens: int = Form(2048),
     quantization: str = Form("none"),
     gpu: str = Form("auto"),
     output_dir: str = Form("./output"),
