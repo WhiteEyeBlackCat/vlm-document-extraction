@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 import traceback
 
+import psutil
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from services.layout import LAYOUT_ENGINE_CHOICES
@@ -198,6 +200,35 @@ def model_status():
         model_id, quantization, gpu = next(iter(_model_cache.keys()))
         return {"loaded": True, "model_id": model_id, "quantization": quantization, "gpu": gpu}
     return {"loaded": False, "model_id": None, "quantization": None, "gpu": None}
+
+
+@router.get("/api/system_stats")
+def system_stats():
+    cpu_pct = psutil.cpu_percent(interval=0.1)
+    ram = psutil.virtual_memory()
+    gpus = []
+    try:
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=index,utilization.gpu,memory.used,memory.total",
+             "--format=csv,noheader,nounits"],
+            text=True, timeout=3,
+        )
+        for line in out.strip().splitlines():
+            idx, util, mem_used, mem_total = [x.strip() for x in line.split(",")]
+            gpus.append({
+                "index": int(idx),
+                "util_pct": int(util),
+                "mem_used_mb": int(mem_used),
+                "mem_total_mb": int(mem_total),
+            })
+    except Exception:
+        pass
+    return {
+        "cpu_pct": cpu_pct,
+        "ram_used_gb": round(ram.used / 1e9, 1),
+        "ram_total_gb": round(ram.total / 1e9, 1),
+        "gpus": gpus,
+    }
 
 
 @router.get("/health")

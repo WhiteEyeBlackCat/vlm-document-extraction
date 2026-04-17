@@ -150,10 +150,10 @@
 
             <div class="card">
               <div class="node-status">
-                <div class="node-status-title">Node Status: Cluster-1</div>
+                <div class="node-status-title">Node Status</div>
                 <div class="node-stat"><span class="node-stat-label">CPU Usage</span><span class="node-stat-value" id="node-cpu">—</span></div>
-                <div class="node-stat"><span class="node-stat-label">Memory</span><span class="node-stat-value" id="node-mem">—</span></div>
-                <div class="node-stat"><span class="node-stat-label">Latency</span><span class="node-stat-value" id="node-lat">—</span></div>
+                <div class="node-stat"><span class="node-stat-label">System RAM</span><span class="node-stat-value" id="node-mem">—</span></div>
+                <div id="node-gpus"></div>
               </div>
             </div>
           </div>
@@ -196,29 +196,6 @@
               <div class="form-group">
                 <label class="form-label">Batch Name</label>
                 <input type="text" class="form-input" id="ingest-batch-name" placeholder="e.g. Q3_LOGISTICS_INFLOW_001" />
-              </div>
-              <div class="form-row">
-                <div class="form-group">
-                  <label class="form-label">Language Selection</label>
-                  <select class="form-select" id="ingest-language">
-                    <option value="auto">Auto Detect</option>
-                    <option value="en">English (US)</option>
-                    <option value="zh-tw">Chinese (TW)</option>
-                    <option value="zh-cn">Chinese (CN)</option>
-                    <option value="ja">Japanese</option>
-                    <option value="ko">Korean</option>
-                    <option value="de">German</option>
-                    <option value="fr">French</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Encoding</label>
-                  <select class="form-select" id="ingest-encoding">
-                    <option>UTF-8</option>
-                    <option>UTF-16</option>
-                    <option>ASCII</option>
-                  </select>
-                </div>
               </div>
             </div>
 

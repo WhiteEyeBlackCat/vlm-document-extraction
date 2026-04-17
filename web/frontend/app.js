@@ -27,9 +27,9 @@ const dashConfEl     = document.getElementById("dash-avg-conf");
 const dashActiveEl   = document.getElementById("dash-active-jobs");
 const dashProjectsList = document.getElementById("dash-projects-list");
 const dashActivityLog  = document.getElementById("dash-activity-log");
-const nodeCpu = document.getElementById("node-cpu");
-const nodeMem = document.getElementById("node-mem");
-const nodeLat = document.getElementById("node-lat");
+const nodeCpu  = document.getElementById("node-cpu");
+const nodeMem  = document.getElementById("node-mem");
+const nodeGpus = document.getElementById("node-gpus");
 
 // Ingest
 const hiddenFile     = document.getElementById("hidden-file");
@@ -195,22 +195,10 @@ dropZone.addEventListener("drop", e => {
   addFiles(Array.from(e.dataTransfer.files));
 });
 
-const LANG_OPTIONS = [
-  { value: "auto", label: "Auto Detect" },
-  { value: "en",    label: "English (US)" },
-  { value: "zh-tw", label: "Chinese (TW)" },
-  { value: "zh-cn", label: "Chinese (CN)" },
-  { value: "ja",    label: "Japanese" },
-  { value: "ko",    label: "Korean" },
-  { value: "de",    label: "German" },
-  { value: "fr",    label: "French" },
-];
-
 function addFiles(files) {
-  const globalLang = document.getElementById("ingest-language").value || "auto";
   files.forEach(f => {
     if (!state.stagedFiles.find(s => s.name === f.name && s.size === f.size)) {
-      state.stagedFiles.push({ file: f, lang: globalLang });
+      state.stagedFiles.push({ file: f });
     }
   });
   renderStagedFiles();
@@ -225,9 +213,6 @@ function renderStagedFiles() {
   state.stagedFiles.forEach((entry, i) => {
     const f = entry.file;
     const sizeStr = formatBytes(f.size);
-    const langOpts = LANG_OPTIONS.map(o =>
-      `<option value="${o.value}"${entry.lang === o.value ? " selected" : ""}>${o.label}</option>`
-    ).join("");
     const div = document.createElement("div");
     div.className = "staged-file";
     div.innerHTML = `
@@ -238,21 +223,12 @@ function renderStagedFiles() {
       <div class="staged-file-progress"><div class="staged-file-bar" id="sf-bar-${i}" style="width:0%"></div></div>
       <div class="staged-file-sub">
         <span>${sizeStr}</span>
-        <span style="display:flex;align-items:center;gap:6px">
-          <select class="staged-file-lang" data-idx="${i}">${langOpts}</select>
-          <button class="staged-file-remove" data-idx="${i}" title="Remove">&#10005;</button>
-        </span>
+        <button class="staged-file-remove" data-idx="${i}" title="Remove">&#10005;</button>
       </div>
     `;
     stagedFilesList.appendChild(div);
   });
 
-  // lang change
-  stagedFilesList.querySelectorAll(".staged-file-lang").forEach(sel => {
-    sel.addEventListener("change", () => {
-      state.stagedFiles[+sel.dataset.idx].lang = sel.value;
-    });
-  });
   // remove
   stagedFilesList.querySelectorAll(".staged-file-remove").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -284,7 +260,6 @@ processBatchBtn.addEventListener("click", async () => {
     hash: shortHash(entry.file.name + entry.file.size),
     status: "pending",
     size: entry.file.size,
-    lang: entry.lang,
     ts: new Date(now.getTime() + i * 1500),
     result: null,
     extractData: null,
@@ -921,10 +896,22 @@ function refreshDashboard() {
     dashProjectsList.querySelectorAll("[data-nav]").forEach(el => el.addEventListener("click", () => navigate(el.dataset.nav)));
   }
 
-  // Node status (simulated)
-  nodeCpu.textContent = `${20 + Math.floor(Math.random() * 60)}%`;
-  nodeMem.textContent = `${(4 + Math.random() * 12).toFixed(1)}GB / 16GB`;
-  nodeLat.textContent = `${80 + Math.floor(Math.random() * 100)}ms`;
+}
+
+async function updateSystemStats() {
+  try {
+    const res  = await fetch("/api/system_stats");
+    const data = await res.json();
+    nodeCpu.textContent = `${data.cpu_pct.toFixed(1)}%`;
+    nodeMem.textContent = `${data.ram_used_gb} GB / ${data.ram_total_gb} GB`;
+    nodeGpus.innerHTML = (data.gpus || []).map(g => `
+      <div class="node-stat">
+        <span class="node-stat-label">GPU ${g.index}</span>
+        <span class="node-stat-value">${g.util_pct}% &nbsp;${g.mem_used_mb >= 1024 ? (g.mem_used_mb/1024).toFixed(1)+"GB" : g.mem_used_mb+"MB"} / ${(g.mem_total_mb/1024).toFixed(0)}GB</span>
+      </div>`).join("");
+  } catch {
+    nodeCpu.textContent = "—";
+  }
 }
 
 // ── Orchestration logs ─────────────────────────
@@ -1172,3 +1159,5 @@ loadOptions().then(() => {
   refreshDashboard();
 });
 updatePageNav();
+updateSystemStats();
+setInterval(updateSystemStats, 5000);
