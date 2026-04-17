@@ -28,6 +28,7 @@ from services.parse import build_document_context, build_layout_view, normalize_
 
 
 CACHE_DIR = Path("output/cache")
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def extraction_cache_key(
@@ -43,33 +44,29 @@ def extraction_cache_key(
     return f"{file_hash}_p{page}_{model_name}_{quantization}_{ocr_engine}_{layout_engine}"
 
 
+def _cache_files() -> list[Path]:
+    return list(CACHE_DIR.glob("*.json"))
+
+
 def load_extraction_cache(key: str) -> dict | None:
-    path = CACHE_DIR / f"{key}.json"
-    if path.exists():
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return None
-    return None
+    try:
+        return json.loads((CACHE_DIR / f"{key}.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def save_extraction_cache(key: str, data: dict) -> None:
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
     (CACHE_DIR / f"{key}.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
 
 def get_cache_stats() -> dict:
-    if not CACHE_DIR.exists():
-        return {"count": 0, "size_mb": 0.0}
-    files = list(CACHE_DIR.glob("*.json"))
+    files = _cache_files()
     total_bytes = sum(f.stat().st_size for f in files)
     return {"count": len(files), "size_mb": round(total_bytes / 1e6, 1)}
 
 
 def clear_extraction_cache() -> int:
-    if not CACHE_DIR.exists():
-        return 0
-    files = list(CACHE_DIR.glob("*.json"))
+    files = _cache_files()
     for f in files:
         f.unlink(missing_ok=True)
     return len(files)

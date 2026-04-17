@@ -13,8 +13,8 @@ const state = {
   workspace: null,     // last extraction result
   sessionStats: { total: 0, success: 0, elapsed: [], conf: [] },
   logTimer: null,
+  selectedJobIds: new Set(),
 };
-const selectedJobIds = new Set();
 
 // ── DOM references ─────────────────────────────
 const pages    = { dashboard: "page-dashboard", ingest: "page-ingest", batch: "page-batch", workspace: "page-workspace" };
@@ -612,7 +612,7 @@ function refreshBatchPage() {
 
   jobsTbody.innerHTML = all.map(j => `
     <tr data-job-id="${escHtml(j.id)}">
-      <td><input type="checkbox" class="job-cb" data-job-id="${escHtml(j.id)}"${selectedJobIds.has(j.id) ? " checked" : ""}${j.status !== "completed" ? " disabled" : ""} /></td>
+      <td><input type="checkbox" class="job-cb" data-job-id="${escHtml(j.id)}"${state.selectedJobIds.has(j.id) ? " checked" : ""}${j.status !== "completed" ? " disabled" : ""} /></td>
       <td>
         <div class="file-id-name">${escHtml(j.filename)}</div>
         <div class="file-id-hash">HASH: ${j.hash}</div>
@@ -625,11 +625,11 @@ function refreshBatchPage() {
     </tr>
   `).join("");
 
-  // Sync checkbox changes into selectedJobIds
+  // Sync checkbox changes into state.selectedJobIds
   jobsTbody.querySelectorAll(".job-cb").forEach(cb => {
     cb.addEventListener("change", () => {
-      if (cb.checked) selectedJobIds.add(cb.dataset.jobId);
-      else selectedJobIds.delete(cb.dataset.jobId);
+      if (cb.checked) state.selectedJobIds.add(cb.dataset.jobId);
+      else state.selectedJobIds.delete(cb.dataset.jobId);
       updateDownloadBtn();
     });
   });
@@ -645,6 +645,8 @@ function refreshBatchPage() {
 
   updateDownloadBtn();
 }
+
+function getCompletedJobs() { return state.jobs.filter(j => j.status === "completed"); }
 
 window.viewJob = function(jobId) {
   const job = state.jobs.find(j => j.id === jobId);
@@ -711,18 +713,18 @@ retryFailedBtn.addEventListener("click", () => {
 });
 
 document.getElementById("select-all-cb").addEventListener("change", function () {
-  const completedJobs = state.jobs.filter(j => j.status === "completed");
+  const completedJobs = getCompletedJobs();
   completedJobs.forEach(j => {
-    if (this.checked) selectedJobIds.add(j.id);
-    else selectedJobIds.delete(j.id);
+    if (this.checked) state.selectedJobIds.add(j.id);
+    else state.selectedJobIds.delete(j.id);
   });
   jobsTbody.querySelectorAll(".job-cb").forEach(cb => { cb.checked = this.checked; });
   updateDownloadBtn();
 });
 
 function updateDownloadBtn() {
-  const sel = selectedJobIds.size;
-  const completedTotal = state.jobs.filter(j => j.status === "completed").length;
+  const sel = state.selectedJobIds.size;
+  const completedTotal = getCompletedJobs().length;
   downloadAllBtn.textContent = sel > 0
     ? `⬇ Download Selected (${sel})`
     : completedTotal > 0
@@ -731,9 +733,9 @@ function updateDownloadBtn() {
 }
 
 downloadAllBtn.addEventListener("click", async () => {
-  const completed = state.jobs.filter(j => j.status === "completed" && j.extractData);
-  const targets = selectedJobIds.size > 0
-    ? completed.filter(j => selectedJobIds.has(j.id))
+  const completed = getCompletedJobs().filter(j => j.extractData);
+  const targets = state.selectedJobIds.size > 0
+    ? completed.filter(j => state.selectedJobIds.has(j.id))
     : completed;
 
   if (!targets.length) { addLog("WARN", "No completed jobs to download."); return; }
