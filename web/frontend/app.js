@@ -14,6 +14,7 @@ const state = {
   sessionStats: { total: 0, success: 0, elapsed: [], conf: [] },
   logTimer: null,
 };
+const selectedJobIds = new Set();
 
 // ── DOM references ─────────────────────────────
 const pages    = { dashboard: "page-dashboard", ingest: "page-ingest", batch: "page-batch", workspace: "page-workspace" };
@@ -611,7 +612,7 @@ function refreshBatchPage() {
 
   jobsTbody.innerHTML = all.map(j => `
     <tr data-job-id="${escHtml(j.id)}">
-      <td><input type="checkbox" class="job-cb" /></td>
+      <td><input type="checkbox" class="job-cb" data-job-id="${escHtml(j.id)}"${selectedJobIds.has(j.id) ? " checked" : ""}${j.status !== "completed" ? " disabled" : ""} /></td>
       <td>
         <div class="file-id-name">${escHtml(j.filename)}</div>
         <div class="file-id-hash">HASH: ${j.hash}</div>
@@ -624,6 +625,15 @@ function refreshBatchPage() {
     </tr>
   `).join("");
 
+  // Sync checkbox changes into selectedJobIds
+  jobsTbody.querySelectorAll(".job-cb").forEach(cb => {
+    cb.addEventListener("change", () => {
+      if (cb.checked) selectedJobIds.add(cb.dataset.jobId);
+      else selectedJobIds.delete(cb.dataset.jobId);
+      updateDownloadBtn();
+    });
+  });
+
   // Click row to view completed jobs
   jobsTbody.querySelectorAll("tr[data-job-id]").forEach(row => {
     row.addEventListener("click", e => {
@@ -632,6 +642,8 @@ function refreshBatchPage() {
       if (job && job.status === "completed" && job.file) viewJob(job.id);
     });
   });
+
+  updateDownloadBtn();
 }
 
 window.viewJob = function(jobId) {
@@ -698,14 +710,77 @@ retryFailedBtn.addEventListener("click", () => {
   state.jobs.filter(j => j.status === "failed").forEach(j => window.retryJob(j.id));
 });
 
-downloadAllBtn.addEventListener("click", () => {
-  const completed = state.jobs.filter(j => j.status === "completed" && j.result);
-  if (!completed.length) { addLog("WARN", "No completed jobs to download."); return; }
-  const blob = new Blob([JSON.stringify(completed.map(j => ({ file: j.filename, result: j.result })), null, 2)], { type: "application/json" });
+document.getElementById("select-all-cb").addEventListener("change", function () {
+  const completedJobs = state.jobs.filter(j => j.status === "completed");
+  completedJobs.forEach(j => {
+    if (this.checked) selectedJobIds.add(j.id);
+    else selectedJobIds.delete(j.id);
+  });
+  jobsTbody.querySelectorAll(".job-cb").forEach(cb => { cb.checked = this.checked; });
+  updateDownloadBtn();
+});
+
+function updateDownloadBtn() {
+  const sel = selectedJobIds.size;
+  const completedTotal = state.jobs.filter(j => j.status === "completed").length;
+  downloadAllBtn.textContent = sel > 0
+    ? `⬇ Download Selected (${sel})`
+    : completedTotal > 0
+    ? `⬇ Download All (${completedTotal})`
+    : "⬇ Download All Results";
+}
+
+downloadAllBtn.addEventListener("click", async () => {
+  const completed = state.jobs.filter(j => j.status === "completed" && j.extractData);
+  const targets = selectedJobIds.size > 0
+    ? completed.filter(j => selectedJobIds.has(j.id))
+    : completed;
+
+  if (!targets.length) { addLog("WARN", "No completed jobs to download."); return; }
+
+  if (typeof JSZip === "undefined") {
+    addLog("WARN", "JSZip not loaded — cannot create ZIP.");
+    return;
+  }
+
+  downloadAllBtn.disabled = true;
+  downloadAllBtn.textContent = "Building ZIP…";
+
+  const zip = new JSZip();
+  const usedFolders = {};
+
+  targets.forEach(j => {
+    const stem = j.filename.replace(/\.[^.]+$/, "");
+    if (usedFolders[stem] == null) usedFolders[stem] = 0;
+    else usedFolders[stem]++;
+    const folder = usedFolders[stem] === 0 ? stem : `${stem}_${usedFolders[stem]}`;
+    const d = j.extractData;
+    zip.folder(folder).file("result.json",            JSON.stringify(d.parsed_json        ?? null,        null, 2));
+    zip.folder(folder).file("bbox_annotations.json",  JSON.stringify(d.bbox_annotations   ?? [],          null, 2));
+    zip.folder(folder).file("metadata.json",          JSON.stringify({
+      filename:        j.filename,
+      batch_id:        state.batchId,
+      model_name:      d.meta?.model_name,
+      quantization:    d.meta?.quantization,
+      elapsed_seconds: d.meta?.elapsed_seconds,
+      total_pages:     d.meta?.total_pages,
+      ocr_engine:      d.meta?.ocr_engine,
+      layout_engine:   d.meta?.layout_engine,
+      json_valid:      d.meta?.json_valid,
+    }, null, 2));
+  });
+
+  const blob = await zip.generateAsync({ type: "blob" });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement("a");
-  a.href = url; a.download = `${state.batchId || "batch"}_results.json`; a.click();
+  a.href = url;
+  a.download = `${state.batchId || "batch"}_results.zip`;
+  a.click();
   URL.revokeObjectURL(url);
+
+  addLog("INFO", `Downloaded ${targets.length} document(s) as ZIP.`);
+  downloadAllBtn.disabled = false;
+  updateDownloadBtn();
 });
 
 // ── Workspace ──────────────────────────────────
