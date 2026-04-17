@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+import gc
 import json
 from pathlib import Path
 import tempfile
@@ -36,24 +37,155 @@ AVAILABLE_LAYOUT_ENGINES = [
 _model_cache: dict[tuple[str, str, str], tuple[Any, Any]] = {}
 
 
+def _split_comma_string(s: str) -> list[str] | None:
+    """If s looks like 'val1, val2, ...' with ≥2 parts, return the parts; else None."""
+    if not isinstance(s, str):
+        return None
+    parts = [p.strip() for p in s.split(",")]
+    # Require ≥2 non-empty parts; reject if any part is empty or the string has no comma
+    if len(parts) >= 2 and all(parts):
+        return parts
+    return None
+
+
+def _normalize_tables(node: Any) -> Any:
+    """Post-process: convert parallel column dicts into arrays of row objects.
+
+    Handles two model output styles:
+      1. Parallel array columns:  {"a": [v1, v2], "b": [v3, v4]}
+      2. Comma-merged strings:    {"a": "v1, v2", "b": "v3, v4"}
+    Both are converted to: [{"a": v1, "b": v3}, {"a": v2, "b": v4}]
+    """
+    from collections import Counter
+
+    if isinstance(node, list):
+        return [_normalize_tables(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+
+    # Recurse children first
+    node = {k: _normalize_tables(v) for k, v in node.items()}
+
+    # ── Style 1: parallel array columns ──────────────────────────────────────
+    array_items = {k: v for k, v in node.items() if isinstance(v, list) and len(v) >= 2}
+    if len(array_items) >= 2:
+        length_counts = Counter(len(v) for v in array_items.values())
+        dominant_len = length_counts.most_common(1)[0][0]
+        matching = {k: v for k, v in array_items.items() if len(v) == dominant_len}
+        if dominant_len >= 2 and len(matching) >= 2:
+            rows = []
+            for i in range(dominant_len):
+                row = {}
+                for k, v in node.items():
+                    if k in matching:
+                        row[k] = v[i]
+                    elif isinstance(v, list) and len(v) == 1:
+                        row[k] = v[0]
+                    elif not isinstance(v, list):
+                        row[k] = v
+                rows.append(row)
+            leftover = {k: v for k, v in node.items()
+                        if k not in matching and isinstance(v, list) and len(v) not in (1, dominant_len)}
+            if leftover:
+                result = {k: v for k, v in node.items() if k not in matching and k not in leftover}
+                result.update(leftover)
+                result["rows"] = rows
+                return result
+            return rows
+
+    # ── Style 2: comma-merged strings ────────────────────────────────────────
+    splittable = {}
+    for k, v in node.items():
+        if isinstance(v, str):
+            parts = _split_comma_string(v)
+            if parts:
+                splittable[k] = parts
+
+    if len(splittable) >= 2:
+        length_counts = Counter(len(v) for v in splittable.values())
+        dominant_len = length_counts.most_common(1)[0][0]
+        matching_str = {k: v for k, v in splittable.items() if len(v) == dominant_len}
+        if dominant_len >= 2 and len(matching_str) >= 2:
+            rows = []
+            for i in range(dominant_len):
+                row = {}
+                for k, v in node.items():
+                    if k in matching_str:
+                        row[k] = matching_str[k][i]
+                    else:
+                        row[k] = v  # scalar or non-splittable — broadcast
+                rows.append(row)
+            return rows
+
+    return node
+
+
 def _extract_json(text: str) -> Any:
-    """Parse JSON from model output, stripping markdown code fences if present."""
+    """Parse JSON from model output, stripping markdown fences and repairing truncation."""
     text = text.strip()
-    # Strip ```json ... ``` or ``` ... ``` wrappers
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
     text = text.strip()
-    return json.loads(text)
+
+    # First try direct parse
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        # Try to repair truncated JSON by closing open structures
+        parsed = _repair_truncated_json(text)
+        if parsed is None:
+            return json.loads(text)  # re-raise original error
+
+    return _normalize_tables(parsed)
+
+
+def _repair_truncated_json(text: str) -> Any | None:
+    """Best-effort repair of JSON truncated mid-generation."""
+    # Remove the last incomplete token (unterminated string or trailing comma)
+    # Walk back from the end to find the last valid boundary
+    for end in range(len(text), max(len(text) - 200, 0), -1):
+        candidate = text[:end].rstrip().rstrip(",").rstrip()
+        # Count open brackets/braces to close
+        stack = []
+        in_string = False
+        escape = False
+        for ch in candidate:
+            if escape:
+                escape = False
+                continue
+            if ch == "\\" and in_string:
+                escape = True
+                continue
+            if ch == '"' and not in_string:
+                in_string = True
+            elif ch == '"' and in_string:
+                in_string = False
+            elif not in_string:
+                if ch in "{[":
+                    stack.append("}" if ch == "{" else "]")
+                elif ch in "}]":
+                    if stack and stack[-1] == ch:
+                        stack.pop()
+        if in_string:
+            continue  # still inside a string, try shorter
+        closing = "".join(reversed(stack))
+        try:
+            return json.loads(candidate + closing)
+        except json.JSONDecodeError:
+            continue
+    return None
 
 
 def get_model(model_id: str, quantization: str, gpu: str = "auto"):
     key = (model_id, quantization, gpu)
     if key not in _model_cache:
-        # Explicitly free old model from GPU memory before loading new one
         if _model_cache:
+            # Explicitly release previous model weights from GPU before loading a new one
             old_model, old_processor = next(iter(_model_cache.values()))
+            old_model.cpu()  # move tensors off GPU first so CUDA frees them immediately
             del old_model, old_processor
             _model_cache.clear()
+            gc.collect()
             torch.cuda.empty_cache()
         runner = model_function(model_id)
         model, processor = runner.build_model(quantization=quantization, gpu=gpu)
@@ -127,6 +259,36 @@ def get_preview_from_path(input_path: Path) -> dict[str, Any]:
     }
 
 
+def get_preview_from_upload(
+    upload_bytes: bytes,
+    filename: str,
+    page_number: int | None = None,
+) -> dict[str, Any]:
+    suffix = Path(filename or "upload.bin").suffix or ".bin"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+        temp_file.write(upload_bytes)
+        temp_path = Path(temp_file.name)
+    try:
+        runner = model_function(MODEL_ID_MAP["Qwen2B"])
+        image_paths, images, preview_images = runner.load_images(temp_path)
+        total_pages = len(images)
+        if page_number is not None:
+            idx = page_number - 1
+            if 0 <= idx < total_pages:
+                images = [images[idx]]
+                image_paths = [image_paths[idx]]
+                preview_images = [preview_images[idx]] if preview_images else None
+        gallery_items = build_gallery_items(image_paths, preview_images, images)
+        return {
+            "total_pages": total_pages,
+            "current_page": page_number,
+            "input_labels": [str(path) for path in image_paths],
+            "gallery": encode_gallery_data_urls(gallery_items),
+        }
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
 def run_extraction_from_path(
     input_path: Path,
     model_name: str,
@@ -135,10 +297,20 @@ def run_extraction_from_path(
     gpu: str,
     ocr_engine: str = "none",
     layout_engine: str = "none",
+    page_number: int | None = None,
 ) -> dict[str, Any]:
     t_start = time.time()
     runner = model_function(resolve_model_id(model_name))
     image_paths, images, preview_images = runner.load_images(input_path)
+
+    total_pages = len(images)
+    if page_number is not None:
+        idx = page_number - 1
+        if not (0 <= idx < total_pages):
+            raise ValueError(f"Page {page_number} out of range (1–{total_pages})")
+        images = [images[idx]]
+        image_paths = [image_paths[idx]]
+        preview_images = [preview_images[idx]] if preview_images else None
 
     layout_regions: list[dict[str, Any]] = []
     layout_error = None
@@ -211,6 +383,8 @@ def run_extraction_from_path(
         "quantization": quantization,
         "elapsed_seconds": round(elapsed, 2),
         "cache_miss": cache_miss,
+        "total_pages": total_pages,
+        "current_page": page_number,
         "input_labels": [str(path) for path in image_paths],
         "gallery_items": build_gallery_items(image_paths, preview_images, images),
         "raw_response": response,
@@ -239,7 +413,8 @@ def run_extraction_from_upload(
     gpu: str,
     ocr_engine: str = "none",
     layout_engine: str = "none",
-    ) -> dict[str, Any]:
+    page_number: int | None = None,
+) -> dict[str, Any]:
     suffix = Path(filename or "upload.bin").suffix or ".bin"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
         temp_file.write(upload_bytes)
@@ -254,6 +429,7 @@ def run_extraction_from_upload(
             gpu=gpu,
             ocr_engine=ocr_engine,
             layout_engine=layout_engine,
+            page_number=page_number,
         )
     finally:
         temp_path.unlink(missing_ok=True)

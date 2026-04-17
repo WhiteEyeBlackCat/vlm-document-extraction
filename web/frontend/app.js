@@ -80,6 +80,9 @@ const wsZoomIn   = document.getElementById("ws-zoom-in");
 const wsZoomOut  = document.getElementById("ws-zoom-out");
 const wsZoomReset = document.getElementById("ws-zoom-reset");
 const wsFullscreen = document.getElementById("ws-fullscreen");
+const wsPagePrev  = document.getElementById("ws-page-prev");
+const wsPageNext  = document.getElementById("ws-page-next");
+const wsPageIndicator = document.getElementById("ws-page-indicator");
 
 // Lightbox
 const lightboxEl      = document.getElementById("lightbox");
@@ -97,6 +100,13 @@ let lightboxSrc  = "";
 let lightboxItem = null;
 let wsZoom = 1;
 let wsGallery = [];
+
+// Per-page extraction cache
+let wsPageCache     = {};   // page_number (1-based) → full API result
+let wsCurrentPage   = 1;
+let wsTotalPages    = 1;
+let wsExtractReqId  = 0;   // incremented each extraction to cancel stale renders
+let wsElapsedTimer  = null;
 
 // ── Navigation ─────────────────────────────────
 function navigate(page) {
@@ -277,74 +287,127 @@ processBatchBtn.addEventListener("click", async () => {
     lang: entry.lang,
     ts: new Date(now.getTime() + i * 1500),
     result: null,
+    extractData: null,
     file: entry.file,
   }));
   state.jobs = [...state.jobs, ...newJobs];
   state.activeJobs += newJobs.length;
 
-  navigate("batch");
-  refreshBatchPage();
+  // Reset page state and navigate to workspace immediately (shows EXTRACTING... state)
+  wsPageCache   = {};
+  wsCurrentPage = 1;
+  wsTotalPages  = 1;
+  updatePageNav();
+  state.wsFile  = state.stagedFiles[0].file;
+
+  const firstFile = state.stagedFiles[0].file;
+  wsTitle.textContent      = `Workspace: ${firstFile.name}`;
+  wsFileCrumb.textContent  = firstFile.name;
+  wsBatchCrumb.textContent = batchName;
+  wsStatusBadge.textContent = "Extracting...";
+  wsStatusBadge.className   = "badge badge-extracting";
+  wsPreviewBody.innerHTML   = `<div class="preview-placeholder"><div class="preview-placeholder-ico">&#128196;</div><div>${escHtml(firstFile.name)}</div></div>`;
+  wsJsonPre.innerHTML       = `<span style="color:#6e7191;font-style:italic">Processing document — please wait...</span>`;
+  wsAccuracy.textContent    = "—";
+  wsConfidence.textContent  = "—";
+  wsTime.textContent        = "—";
+  navigate("workspace");
 
   processBatchBtn.disabled = true;
   addLog("CORE_ORCHESTRATOR", `Batch ${batchName} submitted — ${newJobs.length} file(s) queued.`);
 
-  // Simulate file upload progress
-  state.stagedFiles.forEach((_e, i) => animateUploadProgress(i));
-
-  // Build FormData and send
-  const fd = new FormData();
-  fd.set("model_name",    ingestModelSel.value || "Qwen2B");
-  fd.set("quantization",  ingestQuantSel.value || "none");
-  fd.set("gpu",           ingestGpuSel.value   || "auto");
-  fd.set("max_tokens",    ingestMaxTok.value    || "300");
-  fd.set("output_dir",    "./output");
-  state.stagedFiles.forEach(entry => fd.append("files", entry.file, entry.file.name));
-
-  // Mark all as processing
-  setTimeout(() => {
-    newJobs.forEach(j => { j.status = "processing"; });
-    refreshBatchPage();
-    addLog("CORE_ORCHESTRATOR", `Processing ${newJobs.length} entities — pipeline active.`);
-  }, 800);
-
-  // Start fake log ticker
-  const ticker = setInterval(() => addLog("INFO", fakeLogMsg()), 3000);
-
-  try {
-    const res  = await fetch("/api/batch", { method: "POST", body: fd });
-    const data = await res.json();
-    clearInterval(ticker);
-
-    if (!res.ok) throw new Error(data.detail || "Batch failed");
-
-    // Map results back to jobs
-    data.results.forEach((item, i) => {
-      if (newJobs[i]) {
-        const ok = item.success ?? item.json_valid ?? (item.message && (item.message.startsWith("✅") || item.message.startsWith("⚠️")));
-        newJobs[i].status  = ok ? "completed" : "failed";
-        if (!ok && item.message) {
-          const errShort = item.message.replace(/^❌\s*\S+\s*→\s*/, "").slice(0, 120);
-          addLog("CRITICAL", `${newJobs[i].filename}: ${errShort}`);
-        }
-        newJobs[i].result  = item;
-        newJobs[i].elapsed = item.elapsed_seconds;
-        state.sessionStats.total++;
-        if (item.success) state.sessionStats.success++;
-        if (item.elapsed_seconds) state.sessionStats.elapsed.push(item.elapsed_seconds);
+  // Show preview of first file immediately (no GPU needed)
+  clearInterval(wsElapsedTimer);
+  const t0batch = Date.now();
+  wsJsonPre.innerHTML = jsonLoadingHtml();
+  wsElapsedTimer = setInterval(() => {
+    const el = document.getElementById("json-loading-elapsed");
+    if (el) el.textContent = `Elapsed: ${((Date.now() - t0batch) / 1000).toFixed(0)}s`;
+  }, 1000);
+  const prevFd0 = new FormData();
+  prevFd0.set("page_number", 1);
+  prevFd0.append("file", newJobs[0].file, newJobs[0].file.name);
+  const batchReqId = ++wsExtractReqId;
+  fetch("/api/preview", { method: "POST", body: prevFd0 })
+    .then(r => r.json())
+    .then(prev => {
+      if (wsExtractReqId !== batchReqId) return;
+      if (prev.gallery && prev.gallery.length) {
+        wsTotalPages = prev.total_pages || 1;
+        updatePageNav();
+        renderPreviewImages(prev.gallery);
       }
-    });
-    state.activeJobs = Math.max(0, state.activeJobs - newJobs.length);
-    addLog("INFO", `Batch ${batchName} → PARTIAL_COMPLETION. ${data.results.filter(r => r.success).length}/${newJobs.length} succeeded.`);
-    addActivityEvent("batch", `Batch ${batchName} complete`, `${data.results.filter(r => r.success).length} / ${newJobs.length} files succeeded`);
-  } catch (err) {
-    clearInterval(ticker);
-    newJobs.forEach(j => { if (j.status === "processing") j.status = "failed"; });
-    state.activeJobs = Math.max(0, state.activeJobs - newJobs.length);
-    addLog("CRITICAL", `Batch ${batchName} failed: ${err.message}`);
+    })
+    .catch(() => {});
+
+  const ticker = setInterval(() => addLog("INFO", fakeLogMsg()), 3000);
+  let successCount = 0;
+
+  // Process each file sequentially via /api/extract, caching full results
+  for (let i = 0; i < newJobs.length; i++) {
+    const job = newJobs[i];
+    job.status = "processing";
+    refreshBatchPage();
+    if (i === 0) addLog("CORE_ORCHESTRATOR", `Processing ${newJobs.length} entities — pipeline active.`);
+
+    const fd = new FormData();
+    fd.set("model_name",    ingestModelSel.value || "Qwen2B");
+    fd.set("quantization",  ingestQuantSel.value || "none");
+    fd.set("gpu",           ingestGpuSel.value   || "auto");
+    fd.set("max_tokens",    ingestMaxTok.value    || "2048");
+    fd.set("layout_engine", "doclayout_yolo");
+    fd.set("ocr_engine",    "paddleocr");
+    fd.set("page_number",   1);
+    fd.append("file", job.file, job.file.name);
+
+    try {
+      const res  = await fetch("/api/extract", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Extraction failed");
+
+      job.status      = "completed";
+      job.extractData = data;
+      job.result      = data.meta;
+      job.elapsed     = data.meta?.elapsed_seconds;
+      successCount++;
+      state.sessionStats.total++;
+      if (data.meta?.json_valid) state.sessionStats.success++;
+      if (data.meta?.elapsed_seconds) state.sessionStats.elapsed.push(data.meta.elapsed_seconds);
+
+      // Render workspace for the first completed file
+      if (i === 0) {
+        clearInterval(wsElapsedTimer);
+        wsPageCache[1]  = data;
+        wsCurrentPage   = 1;
+        wsTotalPages    = data.meta?.total_pages || 1;
+        state.wsFile    = job.file;
+        state.workspace = data;
+        renderWorkspace(data, job.filename);
+        updatePageNav();
+        addActivityEvent("extract", `Extracted ${job.filename}`, `${data.meta?.model_name || ""} | ${data.meta?.elapsed_seconds || ""}s`);
+      }
+      addLog("INFO", `${job.filename} → completed in ${data.meta?.elapsed_seconds || "?"}s`);
+    } catch (err) {
+      job.status = "failed";
+      state.sessionStats.total++;
+      addLog("CRITICAL", `${job.filename}: ${err.message}`);
+      if (i === 0) {
+        clearInterval(wsElapsedTimer);
+        wsStatusBadge.textContent = "Failed";
+        wsStatusBadge.className   = "badge badge-failed";
+        wsJsonPre.innerHTML = `<span style="color:#f97583">${escHtml(err.message)}</span>`;
+      }
+    }
+    refreshBatchPage();
   }
 
+  clearInterval(ticker);
+  state.activeJobs = Math.max(0, state.activeJobs - newJobs.length);
+  addLog("INFO", `Batch ${batchName} → PARTIAL_COMPLETION. ${successCount}/${newJobs.length} succeeded.`);
+  addActivityEvent("batch", `Batch ${batchName} complete`, `${successCount} / ${newJobs.length} files succeeded`);
   refreshBatchPage();
   refreshDashboard();
+
   // Clear staged files after submission
   state.stagedFiles = [];
   hiddenFile.value = "";
@@ -365,39 +428,180 @@ function animateUploadProgress(i) {
   }, 300);
 }
 
-// ── Single file extraction (from workspace Re-Run) ──
-async function runSingleExtract(file) {
+// ── Single file extraction (from workspace Re-Run / page nav) ──
+async function runSingleExtract(file, pageNumber = 1) {
+  state.wsFile = file;
+  const myReqId = ++wsExtractReqId;
+
+  const pageLabel = pageNumber > 1 ? ` (page ${pageNumber})` : "";
+  wsStatusBadge.textContent = `Extracting${pageLabel}...`;
+  wsStatusBadge.className   = "badge badge-extracting";
+  wsPreviewBody.innerHTML   = `<div class="preview-placeholder"><div class="preview-placeholder-ico">&#128196;</div><div>${escHtml(file.name)}${pageLabel}</div></div>`;
+  wsAccuracy.textContent    = "—";
+  wsConfidence.textContent  = "—";
+  wsTime.textContent        = "—";
+
+  // Query backend model status to show informative loading message
+  clearInterval(wsElapsedTimer);
+  const t0 = Date.now();
+  function updateElapsedDisplay() {
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(0);
+    const el = document.getElementById("json-loading-elapsed");
+    if (el) el.textContent = `Elapsed: ${elapsed}s`;
+  }
+
+  const wantedModelId = (state.options?.models || []).includes(ingestModelSel.value)
+    ? ingestModelSel.value : ingestModelSel.value;
+  const wantedQuant   = ingestQuantSel.value || "none";
+  const wantedGpu     = ingestGpuSel.value   || "auto";
+
+  // Check what's currently loaded, then show a relevant message
+  fetch("/api/model_status")
+    .then(r => r.json())
+    .then(status => {
+      if (wsExtractReqId !== myReqId) return;
+      let modelMsg = null;
+      if (!status.loaded) {
+        modelMsg = { color: "#f59e0b", icon: "⏳", text: "No model in memory — loading weights (first run may take a minute)…" };
+      } else {
+        const sameQuant = status.quantization === wantedQuant;
+        const sameGpu   = status.gpu === wantedGpu;
+        // Compare model name suffix (Qwen2B, Qwen8B, llama)
+        const cachedShort = Object.entries({ llama: "Llama-3.2-11B", Qwen2B: "Qwen3-VL-2B", Qwen8B: "Qwen3-VL-8B" })
+          .find(([, v]) => status.model_id.includes(v))?.[0];
+        const sameModel = cachedShort === wantedModelId && sameQuant && sameGpu;
+        if (sameModel) {
+          modelMsg = { color: "#10b981", icon: "✓", text: `${wantedModelId} (${wantedQuant}) already in GPU memory — reusing, no reload.` };
+        } else {
+          modelMsg = { color: "#f59e0b", icon: "⚠", text: `Releasing ${cachedShort || status.model_id} and loading ${wantedModelId} (${wantedQuant})…` };
+        }
+      }
+      wsJsonPre.innerHTML = jsonLoadingHtml(modelMsg);
+      wsElapsedTimer = setInterval(updateElapsedDisplay, 1000);
+    })
+    .catch(() => {
+      wsJsonPre.innerHTML = jsonLoadingHtml();
+      wsElapsedTimer = setInterval(updateElapsedDisplay, 1000);
+    });
+
+  // ── Fire preview fetch (fast: PDF→image, no GPU) ──
+  const prevFd = new FormData();
+  prevFd.set("page_number", pageNumber);
+  prevFd.append("file", file, file.name);
+  fetch("/api/preview", { method: "POST", body: prevFd })
+    .then(r => r.json())
+    .then(prev => {
+      if (wsExtractReqId !== myReqId) return; // superseded
+      if (!prev.gallery || !prev.gallery.length) return;
+      wsTotalPages = prev.total_pages || 1;
+      updatePageNav();
+      renderPreviewImages(prev.gallery);
+    })
+    .catch(() => {}); // preview failure is non-critical
+
+  // ── Fire extraction fetch (slow: model inference) ──
   const fd = new FormData();
   fd.set("model_name",    ingestModelSel.value || "Qwen2B");
   fd.set("quantization",  ingestQuantSel.value || "none");
   fd.set("gpu",           ingestGpuSel.value   || "auto");
-  fd.set("max_tokens",    ingestMaxTok.value    || "300");
+  fd.set("max_tokens",    ingestMaxTok.value    || "2048");
   fd.set("layout_engine", "doclayout_yolo");
   fd.set("ocr_engine",    "paddleocr");
+  fd.set("page_number",   pageNumber);
   fd.append("file", file, file.name);
-
-  wsStatusBadge.textContent = "Extracting...";
-  wsStatusBadge.className   = "badge badge-extracting";
 
   try {
     const res  = await fetch("/api/extract", { method: "POST", body: fd });
     const data = await res.json();
+    if (wsExtractReqId !== myReqId) return; // superseded by newer request
     if (!res.ok) throw new Error(data.detail || "Extraction failed");
 
+    clearInterval(wsElapsedTimer);
+    wsTotalPages  = data.meta.total_pages || 1;
+    wsCurrentPage = pageNumber;
+    wsPageCache[pageNumber] = data;
     state.workspace = data;
     renderWorkspace(data, file.name);
-    addActivityEvent("extract", `Extracted ${file.name}`, `${data.meta.model_name} | ${data.meta.elapsed_seconds}s`);
-    state.sessionStats.total++;
-    if (data.meta.json_valid) state.sessionStats.success++;
-    if (data.meta.elapsed_seconds) state.sessionStats.elapsed.push(data.meta.elapsed_seconds);
-    // confidence is pushed inside renderWorkspace from real OCR scores
-    refreshDashboard();
+    updatePageNav();
+
+    if (pageNumber === 1) {
+      addActivityEvent("extract", `Extracted ${file.name}`, `${data.meta.model_name} | ${data.meta.elapsed_seconds}s`);
+      state.sessionStats.total++;
+      if (data.meta.json_valid) state.sessionStats.success++;
+      if (data.meta.elapsed_seconds) state.sessionStats.elapsed.push(data.meta.elapsed_seconds);
+      refreshDashboard();
+    }
   } catch (err) {
+    if (wsExtractReqId !== myReqId) return;
+    clearInterval(wsElapsedTimer);
     wsStatusBadge.textContent = "Failed";
     wsStatusBadge.className   = "badge badge-failed";
     wsJsonPre.innerHTML = `<span style="color:#f97583">${escHtml(err.message)}</span>`;
   }
 }
+
+function jsonLoadingHtml(modelMsg = null) {
+  const extra = modelMsg
+    ? `<div class="json-loading-line" style="margin-top:6px;color:${modelMsg.color}">${modelMsg.icon} ${escHtml(modelMsg.text)}</div>`
+    : "";
+  return `<div class="json-loading-msg">
+    <div class="json-loading-icon">&#9696;</div>
+    <div>
+      <div class="json-loading-title">AI extraction in progress…</div>
+      <div class="json-loading-line">Model is analyzing the document.</div>
+      <div class="json-loading-line">Typically takes 30–120 seconds.</div>
+      ${extra}
+      <div class="json-loading-elapsed" id="json-loading-elapsed">Elapsed: 0s</div>
+    </div>
+  </div>`;
+}
+
+function renderPreviewImages(galleryItems) {
+  wsPreviewBody.innerHTML = "";
+  const galleryWithOverlays = galleryItems.map(item => ({ ...item, overlays: [] }));
+  wsGallery = galleryWithOverlays;
+  const div = document.createElement("div");
+  div.className = "ws-gallery";
+  galleryWithOverlays.forEach(item => {
+    const fig = document.createElement("figure");
+    if (item.src) {
+      const stage = document.createElement("div");
+      stage.className = "preview-stage";
+      const img = document.createElement("img");
+      img.src = item.src; img.alt = item.name;
+      img.style.transform = `scale(${wsZoom})`;
+      img.style.transformOrigin = "top center";
+      stage.appendChild(img);
+      fig.appendChild(stage);
+      fig.addEventListener("click", () => openLightbox(item));
+    }
+    div.appendChild(fig);
+  });
+  wsPreviewBody.appendChild(div);
+}
+
+function updatePageNav() {
+  wsPageIndicator.textContent = `${wsCurrentPage} / ${wsTotalPages}`;
+  wsPagePrev.disabled = wsCurrentPage <= 1;
+  wsPageNext.disabled = wsCurrentPage >= wsTotalPages;
+}
+
+async function goToPage(n) {
+  if (n < 1 || n > wsTotalPages || n === wsCurrentPage) return;
+  wsCurrentPage = n;
+  updatePageNav();
+
+  if (wsPageCache[n]) {
+    state.workspace = wsPageCache[n];
+    renderWorkspace(wsPageCache[n], wsFileCrumb.textContent);
+  } else {
+    if (!state.wsFile) { addLog("WARN", "File not available for page navigation."); return; }
+    await runSingleExtract(state.wsFile, n);
+  }
+}
+
+wsPagePrev.addEventListener("click", () => goToPage(wsCurrentPage - 1));
+wsPageNext.addEventListener("click", () => goToPage(wsCurrentPage + 1));
 
 // ── Batch jobs page ────────────────────────────
 function refreshBatchPage() {
@@ -454,15 +658,28 @@ function refreshBatchPage() {
 
 window.viewJob = function(jobId) {
   const job = state.jobs.find(j => j.id === jobId);
-  if (!job || !job.file) return;
+  if (!job) return;
   navigate("workspace");
-  wsFileCrumb.textContent = job.filename;
+  wsFileCrumb.textContent  = job.filename;
   wsBatchCrumb.textContent = state.batchId || "Batch";
-  wsTitle.textContent = `Workspace: ${job.filename}`;
-  if (state.workspace && job.result) {
-    // reuse last extract data if same file; else re-run
+  wsTitle.textContent      = `Workspace: ${job.filename}`;
+
+  // Reset page cache for this file
+  wsPageCache   = {};
+  wsCurrentPage = 1;
+
+  if (job.extractData) {
+    wsPageCache[1] = job.extractData;
+    wsTotalPages   = job.extractData.meta?.total_pages || 1;
+    state.wsFile   = job.file || null;
+    state.workspace = job.extractData;
+    renderWorkspace(job.extractData, job.filename);
+    updatePageNav();
+  } else if (job.file) {
+    wsTotalPages = 1;
+    updatePageNav();
+    runSingleExtract(job.file, 1);
   }
-  runSingleExtract(job.file);
 };
 
 window.retryJob = function(jobId) {
@@ -594,9 +811,13 @@ function renderWorkspace(data, filename) {
 }
 
 wsRerunBtn.addEventListener("click", () => {
-  const job = state.jobs.find(j => j.status === "completed" && j.filename === wsFileCrumb.textContent);
-  if (job && job.file) runSingleExtract(job.file);
-  else addLog("WARN", "No file available for re-run. Please upload again.");
+  const file = state.wsFile || (state.jobs.find(j => j.filename === wsFileCrumb.textContent) || {}).file;
+  if (!file) { addLog("WARN", "No file available for re-run. Please upload again."); return; }
+  wsPageCache   = {};
+  wsCurrentPage = 1;
+  wsTotalPages  = 1;
+  updatePageNav();
+  runSingleExtract(file, 1);
 });
 
 wsExportCsvBtn.addEventListener("click", () => {
@@ -950,3 +1171,4 @@ loadOptions().then(() => {
   addLog("CORE_ORCHESTRATOR", "System initialised. Ready for batch submission.");
   refreshDashboard();
 });
+updatePageNav();

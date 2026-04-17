@@ -13,8 +13,10 @@ from services.service import (
     GPU_CHOICES,
     MODEL_CHOICES,
     QUANT_CHOICES,
+    _model_cache,
     encode_gallery_data_urls,
     get_preview_from_path,
+    get_preview_from_upload,
     run_batch_from_uploads,
     run_extraction_from_path,
     run_extraction_from_upload,
@@ -54,6 +56,7 @@ async def extract_document(
     ocr_engine: str = Form("paddleocr"),
     layout_engine: str = Form("doclayout_yolo"),
     folder_path: str = Form(""),
+    page_number: int | None = Form(default=None),
     file: UploadFile | None = File(default=None),
 ):
     try:
@@ -67,6 +70,7 @@ async def extract_document(
                 gpu=gpu,
                 ocr_engine=ocr_engine,
                 layout_engine=layout_engine,
+                page_number=page_number,
             )
         elif folder_path.strip():
             result = run_extraction_from_path(
@@ -77,6 +81,7 @@ async def extract_document(
                 gpu=gpu,
                 ocr_engine=ocr_engine,
                 layout_engine=layout_engine,
+                page_number=page_number,
             )
         else:
             raise HTTPException(status_code=400, detail="請上傳檔案或輸入資料夾路徑。")
@@ -98,6 +103,8 @@ async def extract_document(
             "elapsed_seconds": result["elapsed_seconds"],
             "cache_miss": result["cache_miss"],
             "json_valid": result["json_error"] is None,
+            "total_pages": result.get("total_pages", 1),
+            "current_page": result.get("current_page"),
             "layout_engine": result["layout_engine"],
             "layout_error": result["layout_error"],
             "layout_region_count": len(result["layout_regions"]),
@@ -127,6 +134,24 @@ def preview_document(path: str):
         return get_preview_from_path(Path(path.strip()))
     except HTTPException:
         raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="".join(traceback.format_exception_only(type(exc), exc)).strip(),
+        ) from exc
+
+
+@router.post("/api/preview")
+async def preview_document_upload(
+    file: UploadFile = File(...),
+    page_number: int | None = Form(default=None),
+):
+    try:
+        return get_preview_from_upload(
+            upload_bytes=await file.read(),
+            filename=file.filename or "upload.pdf",
+            page_number=page_number,
+        )
     except Exception as exc:
         raise HTTPException(
             status_code=500,
@@ -165,6 +190,14 @@ async def batch_extract(
         ) from exc
 
     return result
+
+
+@router.get("/api/model_status")
+def model_status():
+    if _model_cache:
+        model_id, quantization, gpu = next(iter(_model_cache.keys()))
+        return {"loaded": True, "model_id": model_id, "quantization": quantization, "gpu": gpu}
+    return {"loaded": False, "model_id": None, "quantization": None, "gpu": None}
 
 
 @router.get("/health")

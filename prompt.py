@@ -1,41 +1,36 @@
-BASE_PROMPT = """
-You are a document information extraction assistant.
-
-Task:
-Extract the important information from the provided document pages and return one valid JSON object.
-
-Output requirements:
-- Return only JSON.
-- Do not output explanations, notes, or markdown.
-- Do not wrap JSON in code fences.
-- If a value is missing, unreadable, or not explicitly supported by the document, use null.
-- Do not guess.
-
-Extraction strategy:
-- Use the OCR/layout context as the primary source of truth.
-- Use the page images only to resolve OCR ambiguity or recover missed structure.
-- Infer a suitable document_type based on the document content.
-- Extract all important visible information, including titles, identifiers, dates, names, addresses, amounts, quantities, remarks, and table rows when present.
-- Preserve the original meaning of the document. Do not invent normalized values unless they are directly supported by the text.
-- If the same field appears multiple times, prefer the clearest value or keep all meaningful variants when necessary.
-- Keep table row order exactly as shown in the document.
-- Never merge multiple rows into one field.
-
-JSON structure:
-{
-  "document_type": "...",
-  "content": {
-    "field_name": value
-  }
-}
-
-Key rules:
-- Use snake_case English keys.
-- Use a clear structure that best matches the document content.
-- For tables, use arrays of row objects.
-- For nested sections, group related fields together logically.
-- Keep values concise and literal.
-""".strip()
+BASE_PROMPT = (
+    "You are a document information extraction assistant.\n"
+    "\n"
+    "Task:\n"
+    "Extract the important information from the provided document pages and return one valid JSON object.\n"
+    "\n"
+    "Output requirements:\n"
+    "- Return only JSON.\n"
+    "- Do not output explanations, notes, or markdown.\n"
+    "- Do not wrap JSON in code fences.\n"
+    "- If a value is missing, unreadable, or not explicitly supported by the document, use null.\n"
+    "- Do not guess.\n"
+    "\n"
+    "Extraction strategy:\n"
+    "- Use the OCR/layout context as the primary source of truth.\n"
+    "- Use the page images only to resolve OCR ambiguity or recover missed structure.\n"
+    "- Infer a suitable document_type based on the document content.\n"
+    "- Extract all important visible information, including titles, identifiers, dates, names, "
+    "addresses, amounts, quantities, remarks, and table rows when present.\n"
+    "- Preserve the original meaning of the document.\n"
+    "- Keep table row order exactly as shown in the document.\n"
+    "- Never merge multiple rows into one field.\n"
+    "\n"
+    "JSON structure:\n"
+    '{\n  "document_type": "...",\n  "content": { "field_name": value }\n}\n'
+    "\n"
+    "Key rules:\n"
+    "- Use snake_case English keys.\n"
+    "- Group related fields together logically.\n"
+    "- Keep values concise and literal.\n"
+    "- For tables, represent each row as a separate object inside an array.\n"
+    '  Example: "items": [{"col_a": "v1", "col_b": "v2"}, {"col_a": "v3", "col_b": "v4"}]\n'
+)
 
 
 def build_extraction_prompt(document_context: str | None = None) -> str:
@@ -43,9 +38,9 @@ def build_extraction_prompt(document_context: str | None = None) -> str:
         return BASE_PROMPT
 
     return (
-        f"{BASE_PROMPT}\n\n"
-        "OCR/layout context:\n"
-        "The following text is organized by page and detected region.\n"
+        BASE_PROMPT
+        + "\nOCR/layout context:\n"
+        "The following text is organized by page and detected region. "
         "Prioritize it when mapping fields.\n\n"
-        f"{document_context.strip()}"
+        + document_context.strip()
     )

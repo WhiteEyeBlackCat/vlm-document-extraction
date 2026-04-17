@@ -26,7 +26,7 @@ if command -v conda >/dev/null 2>&1 && conda env list | awk '{print $1}' | grep 
     MPLCONFIGDIR="$MPLCONFIGDIR" \
     YOLO_CONFIG_DIR="$YOLO_CONFIG_DIR" \
     PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK="$PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK" \
-    python -m uvicorn web.app:app --host "$HOST" --port "$PORT"
+    python -m uvicorn web.app:app --host "$HOST" --port "$PORT" --timeout-graceful-shutdown 3
 else
   exec env \
     DOCLAYOUT_YOLO_MODEL="${DOCLAYOUT_YOLO_MODEL:-}" \
@@ -35,5 +35,5 @@ else
     MPLCONFIGDIR="$MPLCONFIGDIR" \
     YOLO_CONFIG_DIR="$YOLO_CONFIG_DIR" \
     PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK="$PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK" \
-    python -m uvicorn web.app:app --host "$HOST" --port "$PORT"
+    python -m uvicorn web.app:app --host "$HOST" --port "$PORT" --timeout-graceful-shutdown 3
 fi
