@@ -16,12 +16,17 @@ from services.service import (
     MODEL_CHOICES,
     QUANT_CHOICES,
     _model_cache,
+    clear_extraction_cache,
     encode_gallery_data_urls,
+    extraction_cache_key,
+    get_cache_stats,
     get_preview_from_path,
     get_preview_from_upload,
+    load_extraction_cache,
     run_batch_from_uploads,
     run_extraction_from_path,
     run_extraction_from_upload,
+    save_extraction_cache,
 )
 
 
@@ -61,10 +66,21 @@ async def extract_document(
     page_number: int | None = Form(default=None),
     file: UploadFile | None = File(default=None),
 ):
+    file_bytes: bytes | None = None
+    cache_key: str | None = None
+
     try:
         if file is not None:
+            file_bytes = await file.read()
+            cache_key = extraction_cache_key(
+                file_bytes, page_number, model_name, quantization, ocr_engine, layout_engine
+            )
+            cached = load_extraction_cache(cache_key)
+            if cached is not None:
+                return cached
+
             result = run_extraction_from_upload(
-                upload_bytes=await file.read(),
+                upload_bytes=file_bytes,
                 filename=file.filename or "upload.pdf",
                 model_name=model_name,
                 max_tokens=max_tokens,
@@ -96,7 +112,7 @@ async def extract_document(
         ) from exc
 
     gallery = encode_gallery_data_urls(result["gallery_items"])
-    return {
+    response = {
         "meta": {
             "model_name": result["model_name"],
             "model_id": result["model_id"],
@@ -126,6 +142,11 @@ async def extract_document(
         "ocr_blocks": result["ocr_blocks"],
         "bbox_annotations": result["bbox_annotations"],
     }
+
+    if cache_key is not None:
+        save_extraction_cache(cache_key, response)
+
+    return response
 
 
 @router.get("/api/preview")
@@ -200,6 +221,17 @@ def model_status():
         model_id, quantization, gpu = next(iter(_model_cache.keys()))
         return {"loaded": True, "model_id": model_id, "quantization": quantization, "gpu": gpu}
     return {"loaded": False, "model_id": None, "quantization": None, "gpu": None}
+
+
+@router.get("/api/cache/stats")
+def cache_stats():
+    return get_cache_stats()
+
+
+@router.delete("/api/cache")
+def cache_clear():
+    count = clear_extraction_cache()
+    return {"cleared": count}
 
 
 @router.get("/api/system_stats")

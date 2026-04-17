@@ -30,6 +30,8 @@ const dashActivityLog  = document.getElementById("dash-activity-log");
 const nodeCpu  = document.getElementById("node-cpu");
 const nodeMem  = document.getElementById("node-mem");
 const nodeGpus = document.getElementById("node-gpus");
+const cacheStatsTxt = document.getElementById("cache-stats-txt");
+const cacheClearBtn = document.getElementById("cache-clear-btn");
 
 // Ingest
 const hiddenFile     = document.getElementById("hidden-file");
@@ -498,6 +500,7 @@ async function runSingleExtract(file, pageNumber = 1) {
     state.workspace = data;
     renderWorkspace(data, file.name);
     updatePageNav();
+    updateCacheStats();
 
     if (pageNumber === 1) {
       addActivityEvent("extract", `Extracted ${file.name}`, `${data.meta.model_name} | ${data.meta.elapsed_seconds}s`);
@@ -914,6 +917,28 @@ async function updateSystemStats() {
   }
 }
 
+async function updateCacheStats() {
+  try {
+    const res  = await fetch("/api/cache/stats");
+    const data = await res.json();
+    cacheStatsTxt.textContent = `${data.count} entries · ${data.size_mb} MB`;
+  } catch {
+    cacheStatsTxt.textContent = "—";
+  }
+}
+
+cacheClearBtn.addEventListener("click", async () => {
+  cacheClearBtn.disabled = true;
+  try {
+    await fetch("/api/cache", { method: "DELETE" });
+    addLog("INFO", "Extraction cache cleared.");
+  } catch {
+    addLog("WARN", "Failed to clear cache.");
+  }
+  await updateCacheStats();
+  cacheClearBtn.disabled = false;
+});
+
 // ── Orchestration logs ─────────────────────────
 function addLog(type, msg) {
   const now  = new Date();
@@ -1161,3 +1186,4 @@ loadOptions().then(() => {
 updatePageNav();
 updateSystemStats();
 setInterval(updateSystemStats, 5000);
+updateCacheStats();

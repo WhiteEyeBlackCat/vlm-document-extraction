@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from io import BytesIO
 import gc
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -24,6 +25,54 @@ from services.layout import (
 )
 from services.ocr import OCR_ENGINE_CHOICES, detect_available_engines, ocr_engine_ready, run_ocr
 from services.parse import build_document_context, build_layout_view, normalize_ocr_blocks
+
+
+CACHE_DIR = Path("output/cache")
+
+
+def extraction_cache_key(
+    file_bytes: bytes,
+    page_number: int | None,
+    model_name: str,
+    quantization: str,
+    ocr_engine: str,
+    layout_engine: str,
+) -> str:
+    file_hash = hashlib.sha256(file_bytes).hexdigest()[:16]
+    page = page_number if page_number is not None else 0
+    return f"{file_hash}_p{page}_{model_name}_{quantization}_{ocr_engine}_{layout_engine}"
+
+
+def load_extraction_cache(key: str) -> dict | None:
+    path = CACHE_DIR / f"{key}.json"
+    if path.exists():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+    return None
+
+
+def save_extraction_cache(key: str, data: dict) -> None:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    (CACHE_DIR / f"{key}.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+def get_cache_stats() -> dict:
+    if not CACHE_DIR.exists():
+        return {"count": 0, "size_mb": 0.0}
+    files = list(CACHE_DIR.glob("*.json"))
+    total_bytes = sum(f.stat().st_size for f in files)
+    return {"count": len(files), "size_mb": round(total_bytes / 1e6, 1)}
+
+
+def clear_extraction_cache() -> int:
+    if not CACHE_DIR.exists():
+        return 0
+    files = list(CACHE_DIR.glob("*.json"))
+    for f in files:
+        f.unlink(missing_ok=True)
+    return len(files)
 
 
 MODEL_CHOICES = list(MODEL_ID_MAP.keys())
@@ -350,7 +399,7 @@ def run_extraction_from_path(
     messages = runner.build_messages(len(images), document_context=document_context)
     input_text = processor.apply_chat_template(messages, add_generation_prompt=True, enable_thinking=False)
 
-    inputs = processor(images=images, text=input_text, return_tensors="pt")
+    inputs = processor(text=input_text, images=images, return_tensors="pt", processor_kwargs={})
     inputs = {
         key: value.contiguous().to(model.device) if torch.is_tensor(value) else value
         for key, value in inputs.items()
@@ -361,7 +410,7 @@ def run_extraction_from_path(
         max_new_tokens=int(max_tokens),
         do_sample=False,
         num_beams=1,
-            repetition_penalty=1.15,
+        repetition_penalty=1.15,
     )
     prompt_length = inputs["input_ids"].shape[-1]
     response = processor.decode(output[0][prompt_length:], skip_special_tokens=True).strip()
@@ -463,7 +512,7 @@ def run_batch_from_paths(
             _, images, _ = runner.load_images(path)
             messages = runner.build_messages(len(images))
             input_text = processor.apply_chat_template(messages, add_generation_prompt=True, enable_thinking=False)
-            inputs = processor(images=images, text=input_text, return_tensors="pt")
+            inputs = processor(text=input_text, images=images, return_tensors="pt", processor_kwargs={})
             inputs = {
                 key: value.contiguous().to(model.device) if torch.is_tensor(value) else value
                 for key, value in inputs.items()
@@ -473,7 +522,7 @@ def run_batch_from_paths(
                 max_new_tokens=int(max_tokens),
                 do_sample=False,
                 num_beams=1,
-            repetition_penalty=1.15,
+                repetition_penalty=1.15,
             )
             prompt_length = inputs["input_ids"].shape[-1]
             response = processor.decode(output[0][prompt_length:], skip_special_tokens=True).strip()
