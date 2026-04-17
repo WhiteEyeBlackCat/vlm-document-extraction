@@ -1,22 +1,19 @@
 from __future__ import annotations
 
 import importlib.util
-import shutil
 from typing import Any
 
 import numpy as np
 from PIL import Image
 
 
-OCR_ENGINE_CHOICES = ["none", "tesseract", "easyocr", "paddleocr"]
+OCR_ENGINE_CHOICES = ["none", "paddleocr"]
+
+_ocr_engine_cache: dict[str, Any] = {}
 
 
 def detect_available_engines() -> list[str]:
     available = ["none"]
-    if shutil.which("tesseract") and importlib.util.find_spec("pytesseract"):
-        available.append("tesseract")
-    if importlib.util.find_spec("easyocr"):
-        available.append("easyocr")
     if importlib.util.find_spec("paddleocr"):
         available.append("paddleocr")
     return available
@@ -33,10 +30,6 @@ def run_ocr(
 ) -> list[dict[str, Any]]:
     if engine == "none":
         return []
-    if engine == "tesseract":
-        return _run_tesseract(images, regions)
-    if engine == "easyocr":
-        return _run_easyocr(images, regions)
     if engine == "paddleocr":
         return _run_paddleocr(images, regions)
     raise ValueError(f"Unsupported OCR engine: {engine}")
@@ -113,84 +106,44 @@ def _make_block(
     }
 
 
-def _run_tesseract(
-    images: list[Image.Image],
-    regions: list[dict[str, Any]] | None,
-) -> list[dict[str, Any]]:
-    import pytesseract
-
-    blocks: list[dict[str, Any]] = []
-    for region, image in _iter_ocr_targets(images, regions):
-        data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
-        total = len(data["text"])
-        for idx in range(total):
-            text = (data["text"][idx] or "").strip()
-            if not text:
-                continue
-            left = int(data["left"][idx])
-            top = int(data["top"][idx])
-            width = int(data["width"][idx])
-            height = int(data["height"][idx])
-            conf_raw = data["conf"][idx]
-            try:
-                confidence = float(conf_raw)
-            except (TypeError, ValueError):
-                confidence = None
-            blocks.append(_make_block(region, text, confidence, [left, top, left + width, top + height]))
-    return blocks
-
-
-def _run_easyocr(
-    images: list[Image.Image],
-    regions: list[dict[str, Any]] | None,
-) -> list[dict[str, Any]]:
-    import easyocr
-
-    reader = easyocr.Reader(["en"], gpu=False)
-    blocks: list[dict[str, Any]] = []
-    for region, image in _iter_ocr_targets(images, regions):
-        results = reader.readtext(image)
-        for bbox_points, text, confidence in results:
-            if not text or not text.strip():
-                continue
-            xs = [point[0] for point in bbox_points]
-            ys = [point[1] for point in bbox_points]
-            blocks.append(
-                _make_block(
-                    region,
-                    text.strip(),
-                    float(confidence) if confidence is not None else None,
-                    [int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))],
-                )
-            )
-    return blocks
+def _get_paddleocr():
+    if "paddleocr" not in _ocr_engine_cache:
+        from paddleocr import PaddleOCR
+        _ocr_engine_cache["paddleocr"] = PaddleOCR(
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
+            lang="en",
+        )
+    return _ocr_engine_cache["paddleocr"]
 
 
 def _run_paddleocr(
     images: list[Image.Image],
     regions: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
-    from paddleocr import PaddleOCR
-
-    reader = PaddleOCR(use_angle_cls=True, lang="en")
+    reader = _get_paddleocr()
     blocks: list[dict[str, Any]] = []
     for region, image in _iter_ocr_targets(images, regions):
         results = reader.ocr(np.array(image))
-        for line in results or []:
-            for item in line or []:
-                bbox_points, text_info = item
-                text = (text_info[0] or "").strip()
-                confidence = text_info[1] if len(text_info) > 1 else None
+        for page_result in results or []:
+            # PaddleOCR 3.x: each result is a dict with rec_texts, rec_scores, dt_polys
+            texts = page_result.get("rec_texts") or []
+            scores = page_result.get("rec_scores") or []
+            polys = page_result.get("dt_polys") or []
+            for text, score, poly in zip(texts, scores, polys):
+                text = (text or "").strip()
                 if not text:
                     continue
-                xs = [point[0] for point in bbox_points]
-                ys = [point[1] for point in bbox_points]
+                pts = np.array(poly)
+                x1, y1 = int(pts[:, 0].min()), int(pts[:, 1].min())
+                x2, y2 = int(pts[:, 0].max()), int(pts[:, 1].max())
                 blocks.append(
                     _make_block(
                         region,
                         text,
-                        float(confidence) if confidence is not None else None,
-                        [int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))],
+                        float(score) if score is not None else None,
+                        [x1, y1, x2, y2],
                     )
                 )
     return blocks

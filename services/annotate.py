@@ -38,25 +38,37 @@ def build_bbox_annotations(parsed_json: dict[str, Any] | None, ocr_blocks: list[
 
     for path, raw_value in _iter_leaf_values(parsed_json):
         normalized_value = _normalize_text(raw_value)
-        if not normalized_value:
+        if not normalized_value or len(normalized_value) < 3:
             continue
-        matches = []
+
+        # Exact matches first, then partial — avoids short-string false positives
+        exact: list[tuple[str, dict]] = []
+        partial: list[tuple[str, dict]] = []
         for block_text, block in normalized_blocks:
-            if normalized_value in block_text or block_text in normalized_value:
-                bbox = block.get("bbox")
-                page = block.get("page")
-                key = (path, tuple(bbox), page)
-                if key in seen:
-                    continue
-                seen.add(key)
-                matches.append(
-                    {
-                        "page": page,
-                        "text": block.get("text"),
-                        "bbox": bbox,
-                        "confidence": block.get("confidence"),
-                    }
-                )
+            if normalized_value == block_text:
+                exact.append((block_text, block))
+            elif len(normalized_value) >= 4 and (
+                normalized_value in block_text or block_text in normalized_value
+            ):
+                partial.append((block_text, block))
+
+        candidates = exact if exact else partial
+        matches = []
+        for _, block in candidates:
+            bbox = block.get("bbox")
+            page = block.get("page")
+            key = (path, tuple(bbox), page)
+            if key in seen:
+                continue
+            seen.add(key)
+            matches.append(
+                {
+                    "page": page,
+                    "text": block.get("text"),
+                    "bbox": bbox,
+                    "confidence": block.get("confidence"),
+                }
+            )
         if matches:
             annotations.append(
                 {

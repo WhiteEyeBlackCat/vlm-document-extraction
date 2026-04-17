@@ -222,7 +222,9 @@ button:disabled {
   margin: 0;
   border: 1px solid var(--line);
   border-radius: 18px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: 980px;
   background: rgba(255, 255, 255, 0.82);
   cursor: zoom-in;
 }
@@ -230,34 +232,46 @@ button:disabled {
 .thumb img {
   display: block;
   width: 100%;
-  min-height: 720px;
-  max-height: 980px;
-  object-fit: contain;
+  height: auto;
   background: #fff;
 }
 
 .preview-stage {
   position: relative;
+  line-height: 0; /* collapse whitespace gap below img */
 }
 
 .bbox-box {
   position: absolute;
+  border: 1px solid rgba(100, 160, 255, 0.7);
+  pointer-events: none;
+}
+
+/* OCR text block — thin blue outline, no label */
+.bbox-box[data-type="ocr"] {
+  border: 1px solid rgba(80, 140, 255, 0.65);
+}
+
+/* Matched JSON field — orange outline + label */
+.bbox-box[data-type="field"] {
   border: 2px solid #ff6b35;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8) inset;
-  pointer-events: none;
 }
 
 .bbox-label {
   position: absolute;
-  top: -24px;
+  top: -22px;
   left: 0;
   padding: 2px 8px;
   border-radius: 999px;
   background: rgba(255, 107, 53, 0.92);
   color: #fff;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pdf-frame {

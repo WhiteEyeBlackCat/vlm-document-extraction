@@ -85,47 +85,39 @@ function renderBoxes(container, overlays) {
   }
 }
 
-function buildAnnotatedItems(items, annotations, layoutRegions) {
+function buildAnnotatedItems(items, annotations, ocrBlocks) {
   const pageMap = new Map(items.map((item, index) => [index + 1, { ...item, overlays: [] }]));
 
-  for (const region of layoutRegions || []) {
-    const target = pageMap.get(region.page);
-    if (!target || !region.bbox) {
+  // Build a set of bboxes that are matched to a JSON field, so we can mark them differently
+  const fieldBboxKeys = new Set();
+  for (const annotation of annotations || []) {
+    for (const match of annotation.matches || []) {
+      if (match.bbox) {
+        fieldBboxKeys.add(match.bbox.join(",") + ":" + match.page);
+      }
+    }
+  }
+
+  // Show every OCR-detected text block as a tight box
+  for (const block of ocrBlocks || []) {
+    const target = pageMap.get(block.page);
+    if (!target || !block.bbox) {
       continue;
     }
     const width = target.width || 1;
     const height = target.height || 1;
+    const key = block.bbox.join(",") + ":" + block.page;
+    const isField = fieldBboxKeys.has(key);
     target.overlays.push({
       bbox: [
-        region.bbox[0] / width,
-        region.bbox[1] / height,
-        region.bbox[2] / width,
-        region.bbox[3] / height,
+        block.bbox[0] / width,
+        block.bbox[1] / height,
+        block.bbox[2] / width,
+        block.bbox[3] / height,
       ],
-      label: region.label,
-      type: "layout",
+      label: isField ? block.text : "",
+      type: isField ? "field" : "ocr",
     });
-  }
-
-  for (const annotation of annotations || []) {
-    for (const match of annotation.matches || []) {
-      const target = pageMap.get(match.page);
-      if (!target || !match.bbox) {
-        continue;
-      }
-      const width = target.width || 1;
-      const height = target.height || 1;
-      target.overlays.push({
-        bbox: [
-          match.bbox[0] / width,
-          match.bbox[1] / height,
-          match.bbox[2] / width,
-          match.bbox[3] / height,
-        ],
-        label: annotation.path.split(".").slice(-1)[0],
-        type: "field",
-      });
-    }
   }
   return Array.from(pageMap.values());
 }
@@ -407,7 +399,7 @@ form.addEventListener("submit", async (event) => {
     metaLineEl.textContent =
       `${data.meta.model_name} | ${data.meta.device} | quant: ${data.meta.quantization} | ${data.meta.elapsed_seconds}s`;
     if (data.gallery.length) {
-      renderGallery(buildAnnotatedItems(data.gallery, data.bbox_annotations, data.layout_regions));
+      renderGallery(buildAnnotatedItems(data.gallery, data.bbox_annotations, data.ocr_blocks));
     }
 
     if (data.parsed_json) {
