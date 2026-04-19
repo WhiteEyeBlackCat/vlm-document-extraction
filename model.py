@@ -199,9 +199,10 @@ class model_function:
         )
 
         inputs = processor(
-            images=images,
             text=input_text,
+            images=images,
             return_tensors="pt",
+            processor_kwargs={},
         )
         inputs = {
             key: value.contiguous().to(model.device) if torch.is_tensor(value) else value

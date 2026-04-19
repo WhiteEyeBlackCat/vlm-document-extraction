@@ -42,11 +42,13 @@ data/RATW25035958/
 data/Sunrisetek-1/
 data/Sunrisetek-2/
 data/zip/
-/outputs
-/output
+demo/
+json/
+preporcess/
 
 # Common model / output artifacts
 outputs/
+output/
 results/
 predictions/
 checkpoints/

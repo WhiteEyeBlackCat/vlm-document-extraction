@@ -2,6 +2,37 @@
 
 Automatically extract structured data from PDFs and images using Vision Language Models (VLMs). Supports both CLI and Web UI.
 
+## Demo Preview
+
+### Web UI Overview
+
+![Web UI Overview](https://github.com/user-attachments/assets/de7d1864-c581-44b5-acd7-19e48273f824)
+
+### Extraction Settings
+
+![Batch Processing Workflow](https://github.com/user-attachments/assets/0cac7050-5420-46c7-8757-31da6d0851b4)
+
+### Extraction Result Example
+
+![Extraction Result Example](https://github.com/user-attachments/assets/fb371a82-b880-4907-af96-9aaf2ac305b1)
+
+## Workflow
+
+```text
+Upload PDF/Image
+    ↓
+Preview / Page Conversion
+    ↓
+Layout Detection + OCR Assistance
+    ↓
+VLM Inference
+    ↓
+Structured JSON Output
+    ↓
+Export / Batch Down
+```
+
+
 ## Features
 
 - Accepts PDF, JPG, PNG, and TIFF input
